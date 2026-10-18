@@ -26,6 +26,10 @@ try:
 except ImportError:
     pass
 
+# The ADK companion service names its key GOOGLE_API_KEY; accept either name.
+if not os.environ.get("GEMINI_API_KEY") and os.environ.get("GOOGLE_API_KEY"):
+    os.environ["GEMINI_API_KEY"] = os.environ["GOOGLE_API_KEY"]
+
 import pandas as pd
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
