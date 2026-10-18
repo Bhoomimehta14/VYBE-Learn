@@ -76,6 +76,57 @@ def _fallback_callouts(level: dict, option_labels: str) -> list[str]:
     ]
 
 
+# ------------------------------------------------------------ learner intent
+#
+# A small classifier (app/intent/) built by transfer learning: a frozen
+# pretrained text encoder plus a head trained on labelled learner questions.
+# It only adds a hint about *what kind of help* the learner wants - it never
+# answers anything itself, and returns None whenever it is unsure or the
+# encoder isn't installed, in which case everything behaves as before.
+
+INTENT_GUIDANCE = {
+    "concept_question": "They want a concept explained. Define it in plain words with a one-line analogy.",
+    "hint_request": "They asked for a hint. Give exactly one small nudge, not the answer.",
+    "stuck_frustrated": "They sound stuck or discouraged. Reassure them briefly, then offer one tiny first step.",
+    "why_wrong": "They want to understand a mistake. Explain what went wrong in their reasoning, kindly.",
+    "next_step": "They want to know what to do next. Suggest exactly one concrete next step.",
+    "example_request": "They asked for an example. Give one small concrete example with simple numbers.",
+    "off_topic": "This is unrelated to the lesson. Answer in one friendly sentence, then steer back to the lesson.",
+}
+
+INTENT_FALLBACK = {
+    "stuck_frustrated": (
+        "That's completely normal - this stuff feels confusing before it clicks. Try just one tiny "
+        "step: read the first option for this column and ask yourself what could go wrong if "
+        "you picked it. You don't need the whole answer at once."
+    ),
+    "hint_request": (
+        "Here's a nudge: look at what each option does to the numbers already in the column. "
+        "Which one would change the overall shape of the data the least?"
+    ),
+    "next_step": "Finish the current level, then move to the next column on your path - the agent will show what it did and why.",
+    "off_topic": "That one's outside what I can help with here, but I'm happy to keep going on your data lesson whenever you are.",
+}
+
+
+def detect_intent(message: str) -> dict | None:
+    try:
+        from app.intent import predict_intent
+    except ImportError:
+        return None
+    try:
+        return predict_intent(message)
+    except Exception:  # noqa: BLE001 - never let intent detection break the chat
+        return None
+
+
+def _with_intent(prompt: str, intent: dict | None) -> str:
+    guidance = INTENT_GUIDANCE.get(intent["intent"]) if intent else None
+    if not guidance:
+        return prompt
+    return f"{prompt}\n\n[Detected what the learner needs: {guidance}]"
+
+
 # ---------------------------------------------------------------- ADK bridge
 
 # The ADK tutor connector: a separate `adk api_server` process hosting
@@ -176,6 +227,8 @@ def ask(message: str, context: str, session_id: str | None = None, level: dict |
     fallback in the real column/issue being studied - it never reaches a
     live model differently than it already does via `context`."""
     prompt = f"{context}\n\nLearner's message: {message}" if context else message
+    intent = detect_intent(message)
+    prompt = _with_intent(prompt, intent)
 
     if session_id:
         adk = ask_adk(prompt, session_id)
@@ -185,6 +238,7 @@ def ask(message: str, context: str, session_id: str | None = None, level: dict |
                 "grounded": True,
                 "profile": adk.get("profile"),
                 "progress": adk.get("progress"),
+                "intent": intent,
             }
 
     try:
@@ -195,9 +249,15 @@ def ask(message: str, context: str, session_id: str | None = None, level: dict |
     if call_llm is not None:
         reply = call_llm(SYSTEM_PROMPT, prompt, max_tokens=300)
         if reply:
-            return {"reply": reply, "grounded": True, "profile": None, "progress": None}
+            return {"reply": reply, "grounded": True, "profile": None, "progress": None, "intent": intent}
 
-    return {"reply": _fallback(message, level), "grounded": False, "profile": None, "progress": None}
+    return {
+        "reply": _fallback(message, level, intent),
+        "grounded": False,
+        "profile": None,
+        "progress": None,
+        "intent": intent,
+    }
 
 
 # ---------------------------------------------------------------- offline FAQ
@@ -275,10 +335,12 @@ def _faq_fallback(message: str, level: dict | None) -> str | None:
     return None
 
 
-def _fallback(message: str, level: dict | None = None) -> str:
+def _fallback(message: str, level: dict | None = None, intent: dict | None = None) -> str:
     faq = _faq_fallback(message, level)
     if faq:
         return faq
+    if intent and intent["intent"] in INTENT_FALLBACK:
+        return INTENT_FALLBACK[intent["intent"]]
     return (
         "I don't have a live, personalized answer for that specific question right now. Try "
         "asking it a different way, naming one of the approaches listed above for this column, "
@@ -400,11 +462,13 @@ def mentor_ask(payload: dict, session_id: str | None = None) -> dict:
     elif action_prompt:
         prompt_parts.append("(No free-text message - just respond to the suggested action above.)")
     prompt = "\n\n".join(prompt_parts)
+    intent = detect_intent(message) if message else None
+    prompt = _with_intent(prompt, intent)
 
     if session_id:
         adk = ask_adk(prompt, session_id)
         if adk:
-            return {"reply": adk["reply"], "grounded": True}
+            return {"reply": adk["reply"], "grounded": True, "intent": intent}
 
     try:
         from llm_client import call_llm  # app/educator/llm_client.py
@@ -414,9 +478,9 @@ def mentor_ask(payload: dict, session_id: str | None = None) -> dict:
     if call_llm is not None:
         reply = call_llm(system_prompt, prompt, max_tokens=350)
         if reply:
-            return {"reply": reply, "grounded": True}
+            return {"reply": reply, "grounded": True, "intent": intent}
 
-    return {"reply": _mentor_fallback(message, action, payload), "grounded": False}
+    return {"reply": _mentor_fallback(message, action, payload), "grounded": False, "intent": intent}
 
 
 def _mentor_fallback(message: str, action: str | None, payload: dict) -> str:

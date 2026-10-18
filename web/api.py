@@ -445,6 +445,7 @@ def chat(body: ChatBody, request: Request) -> dict:
         "reply": result["reply"],
         "grounded": result["grounded"],
         "progress": result.get("progress"),
+        "intent": result.get("intent"),
     }
 
 
@@ -458,7 +459,12 @@ def mentor(body: MentorBody, request: Request) -> dict:
     learner_id = _safe_learner_id(body.learner_id) or session.id
     payload = body.model_dump()
     result = chatbot.mentor_ask(payload, session_id=learner_id)
-    return {"reply": result["reply"], "grounded": result["grounded"], "mode": body.learning_mode}
+    return {
+        "reply": result["reply"],
+        "grounded": result["grounded"],
+        "mode": body.learning_mode,
+        "intent": result.get("intent"),
+    }
 
 
 @app.get("/api/levels/{level_id}/callouts")
