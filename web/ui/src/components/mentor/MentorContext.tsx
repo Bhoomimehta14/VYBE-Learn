@@ -20,6 +20,9 @@ type MentorState = {
   setTask: (patch: Partial<MentorTaskContext>) => void;
   mode: LearningMode;
   setMode: (m: LearningMode) => void;
+  /** True only once the learner has picked a mode themselves; until then the
+   *  server chooses one from who they are and how the lesson is going. */
+  modeChosen: boolean;
   hintsUsed: number;
   bumpHints: () => void;
   attemptCount: number;
@@ -35,7 +38,12 @@ const MentorCtx = createContext<MentorState | null>(null);
 export function MentorProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [task, setTaskState] = useState<MentorTaskContext>({});
-  const [mode, setMode] = useState<LearningMode>("assisted");
+  const [mode, setModeState] = useState<LearningMode>("assisted");
+  const [modeChosen, setModeChosen] = useState(false);
+  const setMode = useCallback((m: LearningMode) => {
+    setModeState(m);
+    setModeChosen(true);
+  }, []);
   const [hintsUsed, setHintsUsed] = useState(0);
   const [attemptCount, setAttemptCount] = useState(0);
   const [mistakes, setMistakes] = useState<string[]>([]);
@@ -69,6 +77,7 @@ export function MentorProvider({ children }: { children: ReactNode }) {
       setTask,
       mode,
       setMode,
+      modeChosen,
       hintsUsed,
       bumpHints,
       attemptCount,
@@ -78,7 +87,7 @@ export function MentorProvider({ children }: { children: ReactNode }) {
       recentActions,
       logAction,
     }),
-    [open, task, setTask, mode, hintsUsed, bumpHints, attemptCount, bumpAttempts, mistakes, addMistake, recentActions, logAction],
+    [open, task, setTask, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts, mistakes, addMistake, recentActions, logAction],
   );
 
   return <MentorCtx.Provider value={value}>{children}</MentorCtx.Provider>;

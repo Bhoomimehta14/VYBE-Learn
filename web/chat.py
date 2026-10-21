@@ -14,6 +14,8 @@ import os
 
 import requests
 
+from web import persona
+
 SYSTEM_PROMPT = """You are the friendly mascot tutor inside a learning app called VYBE Learn.
 The learner is a non-technical professional or student, not a data scientist.
 Answer their question in 2-4 short, plain sentences. Define any technical term you use in the
@@ -32,6 +34,9 @@ def build_context(role: str | None, experience: str | None, goal: str | None, le
         lines.append(f"Their data experience: {experience}")
     if goal:
         lines.append(f"What they're hoping to get out of this: {goal}")
+    tailoring = persona.persona_block(role, experience, goal)
+    if tailoring:
+        lines.append(tailoring)
     if level:
         lines.append(f"Current topic: {level['title']}, on the column '{level['column']}'")
         lines.append(f"Already explained to them: {level['analogy']}")
@@ -447,14 +452,26 @@ def mentor_ask(payload: dict, session_id: str | None = None) -> dict:
     is only True when a live model (ADK or direct Gemini) actually answered;
     otherwise a genuinely useful canned fallback is returned instead, never
     a fabricated one dressed up as live."""
-    mode = payload.get("learning_mode") or "assisted"
-    mode_prompt = MENTOR_MODE_PROMPTS.get(mode, MENTOR_MODE_PROMPTS["assisted"])
-    system_prompt = f"{MENTOR_BASE_PROMPT}\n\n{mode_prompt}\n\n{MENTOR_REVEAL_RULE}"
+    message = (payload.get("user_message") or "").strip()
+    intent = detect_intent(message) if message else None
+
+    who = payload.get("learner") or {}
+    level = persona.learner_level(
+        experience=who.get("experience"),
+        mastery_level=payload.get("mastery_level"),
+        attempt_count=payload.get("attempt_count") or 0,
+        hints_used=payload.get("hints_used") or 0,
+        intent=intent,
+        requested_mode=payload.get("learning_mode"),
+    )
+    mode = level["mode"]
+    mode_prompt = MENTOR_MODE_PROMPTS[mode]
+    tailoring = persona.persona_block(who.get("role"), who.get("experience"), who.get("goal"))
+    system_prompt = "\n\n".join(p for p in [MENTOR_BASE_PROMPT, mode_prompt, tailoring, MENTOR_REVEAL_RULE] if p)
 
     action = payload.get("action")
     action_prompt = MENTOR_ACTION_PROMPTS.get(action) if action else None
     context_block = _mentor_context_block(payload)
-    message = (payload.get("user_message") or "").strip()
 
     prompt_parts = [p for p in [context_block, action_prompt] if p]
     if message:
@@ -462,13 +479,15 @@ def mentor_ask(payload: dict, session_id: str | None = None) -> dict:
     elif action_prompt:
         prompt_parts.append("(No free-text message - just respond to the suggested action above.)")
     prompt = "\n\n".join(prompt_parts)
-    intent = detect_intent(message) if message else None
     prompt = _with_intent(prompt, intent)
 
+    extra = {"intent": intent, "mode": mode, "level": level}
+
     if session_id:
-        adk = ask_adk(prompt, session_id)
+        # The ADK tutor has no system prompt of ours, so the persona rides in the message.
+        adk = ask_adk(f"{tailoring}\n\n{prompt}" if tailoring else prompt, session_id)
         if adk:
-            return {"reply": adk["reply"], "grounded": True, "intent": intent}
+            return {"reply": adk["reply"], "grounded": True, **extra}
 
     try:
         from llm_client import call_llm  # app/educator/llm_client.py
@@ -478,9 +497,9 @@ def mentor_ask(payload: dict, session_id: str | None = None) -> dict:
     if call_llm is not None:
         reply = call_llm(system_prompt, prompt, max_tokens=350)
         if reply:
-            return {"reply": reply, "grounded": True, "intent": intent}
+            return {"reply": reply, "grounded": True, **extra}
 
-    return {"reply": _mentor_fallback(message, action, payload), "grounded": False, "intent": intent}
+    return {"reply": _mentor_fallback(message, action, payload), "grounded": False, **extra}
 
 
 def _mentor_fallback(message: str, action: str | None, payload: dict) -> str:

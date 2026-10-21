@@ -60,7 +60,7 @@ function bubbleClass(kind: MentorMsgKind): string {
    overlay, not a redesign, so it works the same regardless of which screen
    (or which screen's own header layout) is currently showing underneath it. */
 export function AiMentor() {
-  const { open, setOpen, task, mode, setMode, hintsUsed, bumpHints, attemptCount, mistakes, recentActions, logAction } =
+  const { open, setOpen, task, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, mistakes, recentActions, logAction } =
     useMentor();
   const { addNote } = useNotes();
   const [messages, setMessages] = useState<MentorMsg[]>([
@@ -98,7 +98,7 @@ export function AiMentor() {
         last_error: task.error,
         attempt_count: attemptCount,
         hints_used: hintsUsed,
-        learning_mode: mode,
+        learning_mode: modeChosen ? mode : undefined,
         previous_mistakes: mistakes,
         recent_actions: recentActions,
       });

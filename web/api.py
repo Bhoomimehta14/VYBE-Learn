@@ -163,7 +163,7 @@ class MentorBody(BaseModel):
     last_error: str | None = None
     attempt_count: int = 0
     hints_used: int = 0
-    learning_mode: str = "assisted"  # "guided" | "assisted" | "independent"
+    learning_mode: str | None = None  # "guided" | "assisted" | "independent"; None = server decides
     mastery_level: int = 0
     previous_mistakes: list[str] = []
     recent_actions: list[str] = []
@@ -462,12 +462,14 @@ def mentor(body: MentorBody, request: Request) -> dict:
     session = get_session(request)
     learner_id = _safe_learner_id(body.learner_id) or session.id
     payload = body.model_dump()
+    payload["learner"] = {"role": session.role, "experience": session.experience, "goal": session.goal}
     result = chatbot.mentor_ask(payload, session_id=learner_id)
     return {
         "reply": result["reply"],
         "grounded": result["grounded"],
-        "mode": body.learning_mode,
+        "mode": result.get("mode", body.learning_mode),
         "intent": result.get("intent"),
+        "level": result.get("level"),
     }
 
 
