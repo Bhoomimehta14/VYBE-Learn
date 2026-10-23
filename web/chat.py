@@ -23,7 +23,9 @@ same sentence, don't just drop it. Never invent a number or fact about their dat
 wasn't given to you in the context below - if you don't have it, say so plainly.
 If they ask how to fix something, give them a pointer or a nudge toward the idea, not the
 complete final answer outright - this is a lesson, not an answer key.
-No markdown, no bullet lists, no em dashes, no headers."""
+No markdown, no bullet lists, no em dashes, no headers.
+If they ask something unrelated to the lesson, do not refuse stiffly: if it is harmless, answer it in
+one friendly sentence, then bring them back to the lesson. If you do not know, say so briefly."""
 
 
 def build_context(role: str | None, experience: str | None, goal: str | None, level: dict | None) -> str:
@@ -366,7 +368,9 @@ learners through datasets, Python, data cleaning, and machine learning - you coa
 hand over finished answers. Ground every claim only in the context given below; never invent a
 dataset fact, column name, error message, or number that wasn't provided - if something's missing,
 say so plainly instead of guessing. Keep replies short: 2-5 plain sentences, no markdown, no bullet
-lists, no headers, no em dashes."""
+lists, no headers, no em dashes. If the learner asks something unrelated to the lesson, do not refuse
+stiffly: if it is harmless, answer it in one friendly sentence, then bring them back to the lesson;
+if you do not know, say so briefly."""
 
 MENTOR_MODE_PROMPTS = {
     "guided": (
@@ -499,14 +503,18 @@ def mentor_ask(payload: dict, session_id: str | None = None) -> dict:
         if reply:
             return {"reply": reply, "grounded": True, **extra}
 
-    return {"reply": _mentor_fallback(message, action, payload), "grounded": False, **extra}
+    return {"reply": _mentor_fallback(message, action, payload, intent), "grounded": False, **extra}
 
 
-def _mentor_fallback(message: str, action: str | None, payload: dict) -> str:
+def _mentor_fallback(message: str, action: str | None, payload: dict, intent: dict | None = None) -> str:
     if message:
         faq = _faq_fallback(message, None)
         if faq:
             return faq
+        # Only the off-topic redirect is lesson-agnostic; the other canned intent
+        # replies talk about "this column", which the platform-wide mentor can't assume.
+        if intent and intent["intent"] == "off_topic":
+            return INTENT_FALLBACK["off_topic"]
     if payload.get("last_error") and action in (None, "why_wrong", "explain_output"):
         return (
             "I can't reach a live mentor right now, but here's a general nudge: read the last line of "
