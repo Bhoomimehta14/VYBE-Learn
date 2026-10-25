@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Onboarding } from "@/screens/Onboarding";
 import { Dataset } from "@/screens/Dataset";
 import { Mission1 } from "@/screens/Mission1";
@@ -12,7 +12,7 @@ import { Results } from "@/screens/Results";
 import { AutoAdvance } from "@/components/ui/AutoAdvance";
 import { LoadingScene } from "@/components/ui/LoadingScene";
 import { LevelTransition } from "@/components/ui/LevelTransition";
-import { AiMentor } from "@/components/mentor/AiMentor";
+import { AiMentor, DOCK_PUSH } from "@/components/mentor/AiMentor";
 import { MentorProvider, useMentor } from "@/components/mentor/MentorContext";
 import { NotesButton } from "@/components/notes/NotesButton";
 import { NotesScreen } from "@/components/notes/NotesScreen";
@@ -73,7 +73,12 @@ function AppInner() {
     if (screen.name === "level" && loaded) {
       const level = loaded.levels[screen.index];
       lesson = level
-        ? { id: `level-${level.id}`, title: level.title, objective: level.analogy, step: "predict" }
+        ? {
+            id: `level-${level.id}`,
+            title: level.title,
+            objective: `Column "${level.column}": ${level.analogy}`,
+            step: "predict",
+          }
         : undefined;
     }
 
@@ -243,11 +248,22 @@ function AppInner() {
   }
 }
 
+// While the mentor is docked open, the page gives it the right half instead of
+// being covered by it (on screens too narrow for a split it overlays as a sheet).
+function MentorDockLayout({ children }: { children: ReactNode }) {
+  const { open } = useMentor();
+  return (
+    <div className={`transition-[padding] duration-300 ${open ? DOCK_PUSH : ""}`}>{children}</div>
+  );
+}
+
 export default function App() {
   return (
     <NotesProvider>
       <MentorProvider>
-        <AppInner />
+        <MentorDockLayout>
+          <AppInner />
+        </MentorDockLayout>
         <AiMentor />
       </MentorProvider>
       <NotesButton />

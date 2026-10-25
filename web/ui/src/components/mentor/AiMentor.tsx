@@ -2,7 +2,6 @@ import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Mascot } from "@/components/Mascot";
 import { Button } from "@/components/ui/Button";
-import { Segmented } from "@/components/ui/Segmented";
 import { api, type LearningMode, type MentorAction, type MentorResponse } from "@/lib/api";
 import { useMentor } from "@/components/mentor/MentorContext";
 import { useNotes } from "@/components/notes/NotesContext";
@@ -39,11 +38,16 @@ function reasonLine(res: MentorResponse, picked: boolean): string {
 const SUGGESTED_ACTIONS: { action: MentorAction; label: string }[] = [
   { action: "explain", label: "Explain this" },
   { action: "hint", label: "Give me a hint" },
-  { action: "why_wrong", label: "Why is this wrong?" },
   { action: "example", label: "Show an example" },
-  { action: "explain_output", label: "Explain the output" },
-  { action: "next_step", label: "What should I try next?" },
 ];
+
+/* The mentor docks in the right half of the page instead of floating over it:
+   App.tsx pads the page by DOCK_PUSH while it is open, so nothing is covered.
+   Below the lg breakpoint there is no room for a split, so it is a full sheet. */
+export const DOCK_WIDTH = "lg:w-[min(50vw,520px)]";
+export const DOCK_PUSH = "lg:pr-[min(50vw,520px)]";
+
+const MODES: LearningMode[] = ["guided", "assisted", "independent"];
 
 const MODE_LABELS: Record<LearningMode, string> = {
   guided: "Guided",
@@ -54,11 +58,6 @@ const MODE_LABELS_LOWER: Record<LearningMode, string> = {
   guided: "guided",
   assisted: "assisted",
   independent: "independent",
-};
-const MODE_BY_LABEL: Record<string, LearningMode> = {
-  Guided: "guided",
-  Assisted: "assisted",
-  Independent: "independent",
 };
 
 function kindOf(action?: MentorAction): MentorMsgKind {
@@ -91,8 +90,10 @@ function bubbleClass(kind: MentorMsgKind): string {
    overlay, not a redesign, so it works the same regardless of which screen
    (or which screen's own header layout) is currently showing underneath it. */
 export function AiMentor() {
-  const { open, setOpen, task, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, mistakes, recentActions, logAction } =
-    useMentor();
+  const {
+    open, setOpen, task, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts,
+    mistakes, recentActions, logAction, attemptHandlerRef, canAttempt,
+  } = useMentor();
   const { addNote } = useNotes();
   const [messages, setMessages] = useState<MentorMsg[]>([
     {
@@ -122,6 +123,16 @@ export function AiMentor() {
     setBusy(true);
 
     try {
+      // On a lesson that takes typed answers, a message naming a real option is an
+      // attempt: the screen scores it, and it is not also sent as a question.
+      if (text && !action && attemptHandlerRef.current && (await attemptHandlerRef.current(text))) {
+        bumpAttempts();
+        setMessages((m) => [
+          ...m,
+          { from: "mentor", text: "Got it, I scored that as your answer. The result is on the page.", kind: "success" },
+        ]);
+        return;
+      }
       const res = await api.mentor({
         user_message: text,
         action,
@@ -159,6 +170,14 @@ export function AiMentor() {
     }
   };
 
+  const shownMode = modeChosen ? mode : (serverMode ?? mode);
+  const contextLine = [task.lesson?.title ?? "Not on a lesson yet", task.dataset?.name].filter(Boolean).join(" · ");
+  const modeNote = modeChosen
+    ? "You picked this mode."
+    : serverMode
+      ? "Set for you from what you told us. Tap a mode to choose your own."
+      : "The mentor sets this for you until you pick one.";
+
   return (
     <>
       {!open && (
@@ -166,87 +185,75 @@ export function AiMentor() {
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open AI Mentor"
-          className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-surface shadow-lg transition-transform hover:scale-105"
+          className="fixed right-4 top-20 z-40 flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-ink-soft shadow-lg transition-colors hover:border-hero hover:text-ink"
         >
-          <span
-            className="pointer-events-none absolute -inset-2 rounded-full opacity-40 blur-md"
-            style={{ background: "linear-gradient(120deg, var(--color-hero), var(--color-points) 55%, var(--color-hero))" }}
-            aria-hidden
-          />
-          <Mascot className="relative h-8 w-8" />
+          <Mascot className="h-5 w-5" />
+          Ask the mentor
         </button>
       )}
 
       <AnimatePresence>
         {open && (
-          <motion.div
+          <motion.aside
             initial={{ x: 420, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 420, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 34 }}
-            className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[380px] flex-col border-l border-line bg-surface"
+            aria-label="AI Mentor"
+            className={`fixed inset-y-0 right-0 z-40 flex w-full flex-col border-l border-line bg-surface ${DOCK_WIDTH}`}
           >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-line px-4 py-3">
-              <div className="flex items-center gap-2.5">
-                <Mascot className="h-8 w-8 shrink-0" />
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-semibold text-ink">AI Mentor</span>
-                    <span
-                      className={`h-1.5 w-1.5 rounded-full ${
-                        busy ? "animate-pulse bg-points" : live === false ? "bg-ink-soft" : "bg-pass"
+            {/* Header: the mode is a small control here, not a block of its own */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2.5">
+              <div className="flex items-center gap-2">
+                <Mascot className="h-7 w-7 shrink-0" />
+                <span className="text-sm font-semibold text-ink">AI Mentor</span>
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    busy ? "animate-pulse bg-points" : live === false ? "bg-ink-soft" : "bg-pass"
+                  }`}
+                  aria-hidden
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <div role="group" aria-label="Support level" title={modeNote} className="flex gap-1">
+                  {MODES.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMode(m)}
+                      aria-pressed={shownMode === m}
+                      className={`rounded-full border px-2.5 py-0.5 text-[11px] transition-colors ${
+                        shownMode === m
+                          ? "border-hero text-ink"
+                          : "border-line text-ink-soft hover:border-hero hover:text-ink"
                       }`}
-                      aria-hidden
-                    />
-                  </div>
-                  <span className="text-[10px] text-ink-soft">Your co-pilot - not an answer key</span>
+                    >
+                      {MODE_LABELS[m]}
+                    </button>
+                  ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  aria-label="Close mentor"
+                  className="text-lg leading-none text-ink-soft hover:text-ink"
+                >
+                  &times;
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close mentor"
-                className="text-ink-soft hover:text-ink"
-              >
-                &times;
-              </button>
             </div>
 
-            {/* Context summary */}
-            <div className="space-y-2 border-b border-line px-4 py-3 text-xs text-ink-soft">
-              <div>
-                <span className="font-semibold text-ink">Lesson: </span>
-                {task.lesson?.title ?? "Not on a lesson yet"}
-              </div>
-              <div>
-                <span className="font-semibold text-ink">Task: </span>
-                {task.lesson?.step ?? "—"}
-              </div>
-              <div>
-                <span className="font-semibold text-ink">Dataset: </span>
-                {task.dataset?.name ?? "No dataset loaded"}
-              </div>
-              <Segmented
-                options={["Guided", "Assisted", "Independent"]}
-                value={MODE_LABELS[modeChosen ? mode : (serverMode ?? mode)]}
-                onChange={(v) => setMode(MODE_BY_LABEL[v])}
-              />
-              <p className="text-[10px] text-ink-soft">
-                {modeChosen
-                  ? "You picked this mode."
-                  : serverMode
-                    ? "Set for you from what you told us. Tap a mode to choose your own."
-                    : "The mentor sets this for you until you pick one."}
-              </p>
+            {/* One line of context instead of three rows */}
+            <div className="truncate border-b border-line px-3 py-1.5 text-[11px] text-ink-soft" title={contextLine}>
+              {contextLine}
             </div>
 
-            {/* Conversation */}
-            <div ref={scrollRef} className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
+            {/* Conversation: takes all the space that is left */}
+            <div ref={scrollRef} className="flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.from === "you" ? "justify-end" : "justify-start"}`}>
                   <div
-                    className={`max-w-[85%] rounded-md border px-3 py-2 text-sm ${
+                    className={`max-w-[88%] rounded-md border px-3 py-2 text-sm ${
                       m.from === "you" ? "border-hero bg-hero text-white" : `text-ink ${bubbleClass(m.kind)}`
                     }`}
                   >
@@ -283,7 +290,7 @@ export function AiMentor() {
                         {openReason === i && <p className="mt-1 text-[10px] text-ink-soft">{m.tag.reason}</p>}
                       </div>
                     )}
-                    {m.from === "mentor" && (
+                    {m.from === "mentor" && m.kind !== "success" && (
                       <button
                         type="button"
                         onClick={() => addNote(m.text, task.lesson?.title ?? "AI Mentor")}
@@ -298,56 +305,50 @@ export function AiMentor() {
               {busy && <p className="text-xs text-ink-soft">thinking&hellip;</p>}
             </div>
 
-            {/* Code-aware quick sends */}
-            {(task.code || task.error || task.output) && (
-              <div className="flex flex-wrap gap-1.5 border-t border-line px-4 pt-3">
-                {task.code && (
-                  <button
-                    type="button"
-                    onClick={() => send("explain", "Can you walk me through this code?")}
-                    className="rounded-full border border-line px-3 py-1 text-[11px] text-ink-soft hover:border-hero hover:text-ink"
-                  >
-                    Send current code
-                  </button>
-                )}
-                {task.error && (
-                  <button
-                    type="button"
-                    onClick={() => send("why_wrong", "I hit this error, can you help me understand it?")}
-                    className="rounded-full border border-line px-3 py-1 text-[11px] text-ink-soft hover:border-hero hover:text-ink"
-                  >
-                    Send last error
-                  </button>
-                )}
-                {task.output && (
-                  <button
-                    type="button"
-                    onClick={() => send("explain_output", "What does this output mean?")}
-                    className="rounded-full border border-line px-3 py-1 text-[11px] text-ink-soft hover:border-hero hover:text-ink"
-                  >
-                    Send last output
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Suggested actions */}
-            <div className="flex flex-wrap gap-1.5 px-4 pt-3">
+            {/* A few quick prompts; the code-aware ones only appear when there is something to send */}
+            <div className="flex flex-wrap gap-1.5 px-3 pb-2 pt-1">
               {SUGGESTED_ACTIONS.map((a) => (
                 <button
                   key={a.action}
                   type="button"
                   disabled={busy}
                   onClick={() => send(a.action)}
-                  className="rounded-full border border-line bg-bg px-3 py-1.5 text-[11px] font-medium text-ink-soft transition-colors hover:border-hero hover:text-ink disabled:opacity-40"
+                  className="rounded-full border border-line bg-bg px-3 py-1 text-[11px] font-medium text-ink-soft transition-colors hover:border-hero hover:text-ink disabled:opacity-40"
                 >
                   {a.label}
                 </button>
               ))}
+              {task.code && (
+                <button
+                  type="button"
+                  onClick={() => send("explain", "Can you walk me through this code?")}
+                  className="rounded-full border border-line px-3 py-1 text-[11px] text-ink-soft hover:border-hero hover:text-ink"
+                >
+                  Send current code
+                </button>
+              )}
+              {task.error && (
+                <button
+                  type="button"
+                  onClick={() => send("why_wrong", "I hit this error, can you help me understand it?")}
+                  className="rounded-full border border-line px-3 py-1 text-[11px] text-ink-soft hover:border-hero hover:text-ink"
+                >
+                  Send last error
+                </button>
+              )}
+              {task.output && (
+                <button
+                  type="button"
+                  onClick={() => send("explain_output", "What does this output mean?")}
+                  className="rounded-full border border-line px-3 py-1 text-[11px] text-ink-soft hover:border-hero hover:text-ink"
+                >
+                  Send last output
+                </button>
+              )}
             </div>
 
             {/* Input */}
-            <div className="flex gap-2 p-4">
+            <div className="flex gap-2 border-t border-line p-3">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -357,7 +358,7 @@ export function AiMentor() {
                     send();
                   }
                 }}
-                placeholder="Ask your mentor anything..."
+                placeholder={canAttempt ? "Ask a question, or type your fix" : "Ask your mentor anything..."}
                 rows={2}
                 disabled={busy}
                 className="flex-1 resize-none rounded-md border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus-visible:border-hero disabled:opacity-50"
@@ -366,7 +367,7 @@ export function AiMentor() {
                 Send
               </Button>
             </div>
-          </motion.div>
+          </motion.aside>
         )}
       </AnimatePresence>
     </>

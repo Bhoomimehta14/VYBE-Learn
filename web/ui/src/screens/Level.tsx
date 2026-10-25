@@ -6,7 +6,6 @@ import { Fade } from "@/components/ui/Fade";
 import { LevelTransition } from "@/components/ui/LevelTransition";
 import { StudyTopBar } from "@/components/StudyTopBar";
 import { DataSnapshot } from "@/components/DataSnapshot";
-import { Chatbot } from "@/components/lesson/Chatbot";
 import { Callouts } from "@/components/lesson/Callouts";
 import { Quiz } from "@/components/lesson/Quiz";
 import { Flashcard } from "@/components/lesson/Flashcard";
@@ -44,7 +43,7 @@ export function Level({
 }) {
   const level = levels[index];
   const existing = guesses[level.id];
-  const { setTask } = useMentor();
+  const { setTask, registerAttemptHandler } = useMentor();
 
   // Reveal -> quiz -> recap -> code -> next level. Resets whenever the level
   // itself changes so navigating back into an already-guessed level starts over.
@@ -90,7 +89,8 @@ export function Level({
 
   // A typed message that names one of the real options is treated as an
   // attempt (and actually scored by the agent); anything else goes to the
-  // chatbot instead. Errors propagate to the Chatbot's own error bubble.
+  // AI Mentor as a question. The mentor owns the input, so this registers
+  // the scorer with it while a guess is still open.
   const handleAttempt = async (text: string): Promise<boolean> => {
     const matched = matchAnswer(level, text);
     if (!matched) return false;
@@ -99,6 +99,17 @@ export function Level({
     onPointsChange(result.points_total);
     return true;
   };
+
+  const attemptRef = useRef(handleAttempt);
+  useEffect(() => {
+    attemptRef.current = handleAttempt;
+  });
+  const acceptsTypedFix = !existing && !transition;
+  useEffect(() => {
+    if (!acceptsTypedFix) return;
+    registerAttemptHandler((text) => attemptRef.current(text));
+    return () => registerAttemptHandler(null);
+  }, [acceptsTypedFix, registerAttemptHandler]);
 
   if (transition) {
     return (
@@ -152,9 +163,9 @@ export function Level({
 
               <div className="flex flex-col gap-4">
                 <Callouts levelId={level.id} />
-                <div className="flex-1">
-                  <Chatbot level={level} onAttempt={handleAttempt} heading="Learn while vybing" />
-                </div>
+                <p className="text-xs text-ink-soft">
+                  Stuck? Open the mentor to ask a question, or type your fix there.
+                </p>
               </div>
             </div>
             <FunFactBanner issueType={level.issue_type} />

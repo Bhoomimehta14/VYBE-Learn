@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { LearningMode, MentorDatasetContext, MentorLessonContext } from "@/lib/api";
 
 /* What "where the learner currently is" means to the mentor. App.tsx already
@@ -13,11 +13,20 @@ export type MentorTaskContext = {
   error?: string;
 };
 
+/* A lesson screen can let the mentor treat a typed message as an answer attempt
+   (e.g. "type your fix"). It returns true when it handled the text, in which case
+   the mentor does not also send it as a question. */
+export type AttemptHandler = (text: string) => Promise<boolean>;
+
 type MentorState = {
   open: boolean;
   setOpen: (v: boolean) => void;
   task: MentorTaskContext;
   setTask: (patch: Partial<MentorTaskContext>) => void;
+  attemptHandlerRef: MutableRefObject<AttemptHandler | null>;
+  /** True while a screen has registered an attempt handler (drives the input placeholder). */
+  canAttempt: boolean;
+  registerAttemptHandler: (h: AttemptHandler | null) => void;
   mode: LearningMode;
   setMode: (m: LearningMode) => void;
   /** True only once the learner has picked a mode themselves; until then the
@@ -40,6 +49,12 @@ export function MentorProvider({ children }: { children: ReactNode }) {
   const [task, setTaskState] = useState<MentorTaskContext>({});
   const [mode, setModeState] = useState<LearningMode>("assisted");
   const [modeChosen, setModeChosen] = useState(false);
+  const attemptHandlerRef = useRef<AttemptHandler | null>(null);
+  const [canAttempt, setCanAttempt] = useState(false);
+  const registerAttemptHandler = useCallback((h: AttemptHandler | null) => {
+    attemptHandlerRef.current = h;
+    setCanAttempt(h !== null);
+  }, []);
   const setMode = useCallback((m: LearningMode) => {
     setModeState(m);
     setModeChosen(true);
@@ -75,6 +90,9 @@ export function MentorProvider({ children }: { children: ReactNode }) {
       setOpen,
       task,
       setTask,
+      attemptHandlerRef,
+      canAttempt,
+      registerAttemptHandler,
       mode,
       setMode,
       modeChosen,
@@ -87,7 +105,7 @@ export function MentorProvider({ children }: { children: ReactNode }) {
       recentActions,
       logAction,
     }),
-    [open, task, setTask, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts, mistakes, addMistake, recentActions, logAction],
+    [open, task, setTask, canAttempt, registerAttemptHandler, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts, mistakes, addMistake, recentActions, logAction],
   );
 
   return <MentorCtx.Provider value={value}>{children}</MentorCtx.Provider>;
