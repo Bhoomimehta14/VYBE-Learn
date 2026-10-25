@@ -44,8 +44,8 @@ const SUGGESTED_ACTIONS: { action: MentorAction; label: string }[] = [
 /* The mentor docks in the right half of the page instead of floating over it:
    App.tsx pads the page by DOCK_PUSH while it is open, so nothing is covered.
    Below the lg breakpoint there is no room for a split, so it is a full sheet. */
-export const DOCK_WIDTH = "lg:w-[min(50vw,520px)]";
-export const DOCK_PUSH = "lg:pr-[min(50vw,520px)]";
+export const DOCK_WIDTH = "lg:w-[min(50vw,720px)]";
+export const DOCK_PUSH = "lg:pr-[min(50vw,720px)]";
 
 const MODES: LearningMode[] = ["guided", "assisted", "independent"];
 
@@ -91,17 +91,11 @@ function bubbleClass(kind: MentorMsgKind): string {
    (or which screen's own header layout) is currently showing underneath it. */
 export function AiMentor() {
   const {
-    open, setOpen, task, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts,
+    open, setOpen, dismiss, task, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts,
     mistakes, recentActions, logAction, attemptHandlerRef, canAttempt,
   } = useMentor();
   const { addNote } = useNotes();
-  const [messages, setMessages] = useState<MentorMsg[]>([
-    {
-      from: "mentor",
-      text: "Hi, I'm your AI Mentor. Ask me anything about the lesson or dataset you're on, or tap one of the prompts below.",
-      kind: "chat",
-    },
-  ]);
+  const [messages, setMessages] = useState<MentorMsg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [live, setLive] = useState<boolean | null>(null);
@@ -170,6 +164,10 @@ export function AiMentor() {
     }
   };
 
+  const onLevel = task.lesson?.step === "predict";
+  const greeting = onLevel
+    ? "Hi! Your job here is simple: choose an answer on the left. Not sure? Tap \u201cGive me a hint\u201d and I'll nudge you."
+    : "Hi, I'm your AI Mentor. Ask me anything about the lesson or dataset you're on, or tap one of the prompts below.";
   const shownMode = modeChosen ? mode : (serverMode ?? mode);
   const contextLine = [task.lesson?.title ?? "Not on a lesson yet", task.dataset?.name].filter(Boolean).join(" · ");
   const modeNote = modeChosen
@@ -234,7 +232,7 @@ export function AiMentor() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setOpen(false)}
+                  onClick={dismiss}
                   aria-label="Close mentor"
                   className="text-lg leading-none text-ink-soft hover:text-ink"
                 >
@@ -250,6 +248,9 @@ export function AiMentor() {
 
             {/* Conversation: takes all the space that is left */}
             <div ref={scrollRef} className="flex-1 space-y-2.5 overflow-y-auto px-3 py-3">
+              <div className="flex justify-start">
+                <div className="max-w-[88%] rounded-md border border-line bg-bg px-3 py-2 text-sm text-ink">{greeting}</div>
+              </div>
               {messages.map((m, i) => (
                 <div key={i} className={`flex ${m.from === "you" ? "justify-end" : "justify-start"}`}>
                   <div
@@ -358,7 +359,7 @@ export function AiMentor() {
                     send();
                   }
                 }}
-                placeholder={canAttempt ? "Ask a question, or type your fix" : "Ask your mentor anything..."}
+                placeholder={canAttempt ? "Ask a question" : "Ask your mentor anything..."}
                 rows={2}
                 disabled={busy}
                 className="flex-1 resize-none rounded-md border border-line bg-bg px-3 py-2 text-sm text-ink outline-none focus-visible:border-hero disabled:opacity-50"

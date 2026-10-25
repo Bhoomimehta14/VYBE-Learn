@@ -6,10 +6,8 @@ import { Fade } from "@/components/ui/Fade";
 import { LevelTransition } from "@/components/ui/LevelTransition";
 import { StudyTopBar } from "@/components/StudyTopBar";
 import { DataSnapshot } from "@/components/DataSnapshot";
-import { Callouts } from "@/components/lesson/Callouts";
 import { Quiz } from "@/components/lesson/Quiz";
 import { Flashcard } from "@/components/lesson/Flashcard";
-import { FunFactBanner } from "@/components/lesson/FunFactBanner";
 import { CodeReveal } from "@/components/lesson/CodeReveal";
 import { Mascot } from "@/components/Mascot";
 import { topicName, matchAnswer } from "@/lib/grading";
@@ -43,7 +41,10 @@ export function Level({
 }) {
   const level = levels[index];
   const existing = guesses[level.id];
-  const { setTask, registerAttemptHandler } = useMentor();
+  const { setTask, registerAttemptHandler, setOpen, dismissed } = useMentor();
+  const [choosing, setChoosing] = useState<string | null>(null);
+  const [choiceError, setChoiceError] = useState<string | null>(null);
+  const [showMore, setShowMore] = useState(false);
 
   // Reveal -> quiz -> recap -> code -> next level. Resets whenever the level
   // itself changes so navigating back into an already-guessed level starts over.
@@ -75,6 +76,13 @@ export function Level({
     setTask({ output: summary || undefined });
   }, [existing, setTask]);
 
+  // The mentor is part of a lesson level: open by default, and it stays closed
+  // once the learner has closed it themselves.
+  useEffect(() => {
+    if (!dismissed) setOpen(true);
+  }, [dismissed, setOpen, level.id]);
+  useEffect(() => () => setOpen(false), [setOpen]);
+
   const readSent = useRef<Set<number>>(new Set());
   useEffect(() => {
     if (transition || existing || readSent.current.has(level.id)) return;
@@ -91,14 +99,34 @@ export function Level({
   // attempt (and actually scored by the agent); anything else goes to the
   // AI Mentor as a question. The mentor owns the input, so this registers
   // the scorer with it while a guess is still open.
+  const submitChoice = async (choiceId: string) => {
+    const result = await api.guess(level.id, choiceId);
+    onGuessed(level.id, result);
+    onPointsChange(result.points_total);
+  };
+
   const handleAttempt = async (text: string): Promise<boolean> => {
     const matched = matchAnswer(level, text);
     if (!matched) return false;
-    const result = await api.guess(level.id, matched);
-    onGuessed(level.id, result);
-    onPointsChange(result.points_total);
+    await submitChoice(matched);
     return true;
   };
+
+  const pickOption = async (choiceId: string) => {
+    if (choosing) return;
+    setChoosing(choiceId);
+    setChoiceError(null);
+    try {
+      await submitChoice(choiceId);
+    } catch {
+      setChoiceError("That didn't go through. Try again.");
+    } finally {
+      setChoosing(null);
+    }
+  };
+
+  const [firstSentence, ...restOfStory] = level.analogy.split(/(?<=[.!?])\s+/);
+  const moreStory = restOfStory.join(" ");
 
   const attemptRef = useRef(handleAttempt);
   useEffect(() => {
@@ -127,48 +155,77 @@ export function Level({
         />
       </div>
 
-      <div className="mx-auto max-w-[980px] px-6 py-10">
+      <div className="mx-auto max-w-[640px] px-6 pb-28 pt-10">
         <button onClick={onBack} className="text-sm text-ink-soft hover:text-ink">
           &larr; Back
         </button>
 
         {!existing ? (
           <Fade k={`predict-${level.id}`}>
-            {/* Two halves, no visible divider - just a gap. Left: what's
-                wrong and the real data. Right: the tutor, with prompts up
-                top so a blank chat box isn't the first thing you face. */}
-            <div className="mt-4 grid grid-cols-1 gap-10 lg:grid-cols-2">
-              <div>
-                <div className="flex items-start gap-3">
-                  <Mascot className="h-10 w-10 shrink-0" />
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
-                      Level {index + 1} of {levels.length}
-                    </p>
-                    <h1 className="mt-0.5 text-2xl text-ink">{topicName(level.issue_type)}</h1>
-                  </div>
-                </div>
-                <p className="mt-3 text-sm text-ink-soft">{level.analogy}</p>
-
-                <div className="mt-6">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-soft">
-                    A look at your data &mdash; column: {level.column}
+            {/* One column of two numbered steps. The mentor lives in the right half of the
+                screen (docked, open by default), so this side stays short and clear. */}
+            <div className="mt-4">
+              <div className="flex items-center gap-3">
+                <Mascot className="h-9 w-9 shrink-0" />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+                    Level {index + 1} of {levels.length} &middot; {pointsTotal} points
                   </p>
+                  <h1 className="mt-0.5 text-2xl text-ink">{topicName(level.issue_type)}</h1>
+                </div>
+              </div>
+
+              <section className="mt-4">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-hero text-[11px] text-white">1</span>
+                  Here&rsquo;s the problem
+                </h2>
+                <p className="mt-2 text-sm text-ink-soft">
+                  {firstSentence}
+                  {moreStory && showMore ? ` ${moreStory}` : ""}
+                </p>
+                {moreStory && (
+                  <button
+                    type="button"
+                    onClick={() => setShowMore((v) => !v)}
+                    className="mt-1 text-xs font-semibold text-ink-soft hover:text-hero"
+                  >
+                    {showMore ? "Show less" : "Read more"}
+                  </button>
+                )}
+                <div className="mt-3">
                   {datasetPreview.length > 0 && (
                     <DataSnapshot column={level.column} issueType={level.issue_type} rows={datasetPreview} />
                   )}
                 </div>
-                <p className="mt-3 text-xs text-ink-soft">{pointsTotal} points so far</p>
-              </div>
+              </section>
 
-              <div className="flex flex-col gap-4">
-                <Callouts levelId={level.id} />
-                <p className="text-xs text-ink-soft">
-                  Stuck? Open the mentor to ask a question, or type your fix there.
+              <section className="mt-5">
+                <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-hero text-[11px] text-white">2</span>
+                  Your turn: pick one
+                </h2>
+                <p className="mt-2 text-sm text-ink">{level.question}</p>
+                <p className="mt-1 text-xs text-ink-soft">
+                  Pick one and you'll see what the agent really did. Not sure? Ask the mentor on the right.
                 </p>
-              </div>
+                <div className="mt-3 space-y-2.5">
+                  {level.options.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      disabled={choosing !== null}
+                      onClick={() => pickOption(o.id)}
+                      className="block w-full rounded-md border border-line bg-surface px-4 py-3 text-left transition-colors hover:border-hero focus-visible:border-hero disabled:opacity-60"
+                    >
+                      <span className="block text-sm font-semibold text-ink">{o.label}</span>
+                      <span className="mt-0.5 block text-xs text-ink-soft">{o.blurb}</span>
+                    </button>
+                  ))}
+                </div>
+                {choiceError && <p className="mt-2 text-xs text-fail">{choiceError}</p>}
+              </section>
             </div>
-            <FunFactBanner issueType={level.issue_type} />
           </Fade>
         ) : (
           <div className="mx-auto max-w-[640px]">
@@ -280,12 +337,20 @@ function Reveal({
         </Tag>
       </div>
 
-      <div className="mt-6 flex justify-center">
-        <Button variant="flat" onClick={onNext}>
-          Quick recap <span aria-hidden>&rarr;</span>
-        </Button>
-      </div>
+      <NextStep hint="Next: a quick recap" onClick={onNext} label="Quick recap" />
     </Fade>
+  );
+}
+
+/* The one thing to do next, kept on screen (sticky) so it is never below the fold. */
+function NextStep({ hint, label, onClick }: { hint: string; label: string; onClick: () => void }) {
+  return (
+    <div className="sticky bottom-4 z-10 mt-6 flex flex-col items-center gap-1.5 rounded-md bg-bg/90 py-3 backdrop-blur-sm">
+      <p className="text-xs text-ink-soft">{hint}</p>
+      <Button variant="primary" onClick={onClick}>
+        {label} <span aria-hidden>&rarr;</span>
+      </Button>
+    </div>
   );
 }
 
@@ -306,11 +371,7 @@ function Recap({ level, result, onNext }: { level: LevelT; result: GuessResult; 
         </p>
       </div>
 
-      <div className="mt-6 flex justify-center">
-        <Button variant="flat" onClick={onNext}>
-          See the code <span aria-hidden>&rarr;</span>
-        </Button>
-      </div>
+      <NextStep hint="Next: see the code behind it" onClick={onNext} label="See the code" />
     </Fade>
   );
 }
