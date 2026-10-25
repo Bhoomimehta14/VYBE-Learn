@@ -121,3 +121,7 @@ specific reasons every attempt failed.
 
 The learner-intent classifier (transfer learning) that tailors the mentor and
 chat replies is described in [transfer-learning.md](transfer-learning.md).
+
+
+The ADK multi-agent tutor server lives in [`adk-tutor/`](../adk-tutor/), a self-contained copy of the
+former `vybe-learn-adk-tutor` repo (it has its own `app/` and tests).
