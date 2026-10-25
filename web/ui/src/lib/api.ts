@@ -227,7 +227,24 @@ export type MentorRequest = {
   action?: MentorAction;
 };
 
-export type MentorResponse = { reply: string; grounded: boolean; mode: LearningMode };
+export type MentorIntentName =
+  | "concept_question"
+  | "hint_request"
+  | "stuck_frustrated"
+  | "why_wrong"
+  | "next_step"
+  | "example_request"
+  | "off_topic";
+
+export type MentorResponse = {
+  reply: string;
+  grounded: boolean;
+  /** The mode the server actually used (it may differ from what the UI showed). */
+  mode: LearningMode;
+  /** What kind of help the learner's message looked like; null when the model wasn't sure. */
+  intent?: { intent: MentorIntentName; confidence: number } | null;
+  level?: { band: "new" | "basics" | "confident" | "unknown"; score: number; mode: LearningMode; reason: string } | null;
+};
 
 export const api = {
   async startSession(profile: Profile): Promise<string> {
