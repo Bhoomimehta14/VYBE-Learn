@@ -441,9 +441,65 @@ for i, line in enumerate(ctx_lines):
 footer(s)
 
 
-# ------------------------------------------------------- slide 7: curriculum
+# ------------------------------------------------ slide 7: transfer learning
 s = add_slide()
-eyebrow(s, "05 \u2014 Learning path")
+eyebrow(s, "05 \u2014 Transfer learning")
+title(s, "A frozen encoder plus a small trained head")
+_, tf = box(s, Inches(0.7), Inches(1.55), Inches(11.9), Inches(0.7))
+para(
+    tf,
+    "Before the mentor answers, a small model works out what kind of help the learner is asking for. "
+    "It only routes: Gemini still writes every reply, and with no encoder the chat behaves as it always did.",
+    14, INK_SOFT, first=True,
+)
+
+steps = [
+    ("1  Frozen encoder", "BAAI/bge-small-en-v1.5 already understands language. We never retrain it."),
+    ("2  Small trained head", "Logistic regression on 186 labelled learner questions picks one of 7 intents, or says it is not sure."),
+    ("3  Tailored reply", "The intent, the learner's level and their role, experience and goal shape the prompt."),
+]
+sw = Inches(3.83)
+for i, (h, b) in enumerate(steps):
+    card(s, Emu(Inches(0.7) + i * (sw + Inches(0.2))), Inches(2.4), sw, Inches(1.45), h, b, body_size=12)
+
+tl_rows = [
+    ("Test", "Transfer", "Baseline (TF-IDF)"),
+    ("5-fold cross-validation, 186 questions", "93.5%", "71.0%"),
+    ("Only 2 labelled examples per intent", "73.2%", "41.1%"),
+    ("Only 8 labelled examples per intent", "87.1%", "57.9%"),
+    ("Only 16 labelled examples per intent", "90.4%", "62.1%"),
+]
+tl_table = s.shapes.add_table(len(tl_rows), 3, Inches(0.7), Inches(4.1), Inches(11.9), Inches(2.0)).table
+for i, w in enumerate([Inches(6.5), Inches(2.7), Inches(2.7)]):
+    tl_table.columns[i].width = w
+for ri, row in enumerate(tl_rows):
+    is_header = ri == 0
+    for ci, val in enumerate(row):
+        cell = tl_table.cell(ri, ci)
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = SURFACE_RAISED if is_header else SURFACE
+        cell.margin_left = Inches(0.12)
+        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tf = cell.text_frame
+        p = tf.paragraphs[0]
+        r = p.add_run()
+        color = INK_FAINT if is_header else (GOOD if ci == 1 else (INK if ci == 0 else INK_SOFT))
+        set_run(r, val, 10 if is_header else 12, color, bold=is_header or ci == 1, font=FONT_MONO if is_header else FONT_BODY)
+
+_, tf = box(s, Inches(0.7), Inches(6.2), Inches(11.9), Inches(0.8))
+para(
+    tf,
+    "On 56 held-out messages: 98.2% with no wrong labels, and the baseline reaches 92.9% there, so the gap is small. "
+    "We wrote those messages ourselves, which makes them easier than real learners. "
+    "The few-shot rows are the real evidence.",
+    11, INK_SOFT, first=True,
+)
+footer(s, "vybe-learn \u00b7 app/intent + web/persona.py \u00b7 docs/transfer-learning.md")
+
+
+# ------------------------------------------------------- slide 8: curriculum
+s = add_slide()
+eyebrow(s, "06 \u2014 Learning path")
 title(s, "Six stages, ten real steps")
 _, tf = box(s, Inches(0.7), Inches(1.55), Inches(11.9), Inches(0.6))
 para(
@@ -479,7 +535,7 @@ footer(s)
 
 # ------------------------------------------------------------ slide 8: stack
 s = add_slide()
-eyebrow(s, "06 \u2014 Tech stack")
+eyebrow(s, "07 \u2014 Tech stack")
 title(s, "What it's actually built on")
 
 rows_data = [
@@ -522,7 +578,7 @@ footer(s)
 
 # --------------------------------------------------------- slide 9: why wins
 s = add_slide()
-eyebrow(s, "07 \u2014 The case")
+eyebrow(s, "08 \u2014 The case")
 title(s, "Why this beats a chatbot wrapper")
 
 rows_data = [
@@ -578,7 +634,7 @@ for i, (n, h, b) in enumerate(rubric):
 
 # --------------------------------------------------- slide 10: talking points
 s = add_slide()
-eyebrow(s, "08 \u2014 For the deck")
+eyebrow(s, "09 \u2014 For the deck")
 title(s, "What to actually say")
 
 talk = [

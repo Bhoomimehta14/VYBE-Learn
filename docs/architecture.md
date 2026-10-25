@@ -116,3 +116,8 @@ residual-prediction correlation) — not a vibe-based LLM judgment.
 automatically; if all candidates for a given column or model are
 exhausted, the system stops guessing and flags it for a human, with the
 specific reasons every attempt failed.
+
+---
+
+The learner-intent classifier (transfer learning) that tailors the mentor and
+chat replies is described in [transfer-learning.md](transfer-learning.md).

@@ -109,6 +109,28 @@ decisions itself. This also means the system degrades gracefully — if the
 LLM API is unavailable, the agent still works, just with plainer
 explanations.
 
+## Transfer learning: the learner-intent classifier
+
+The AI Mentor and chat first work out what kind of help a learner is asking
+for (a concept, a hint, a mistake explained, a next step, an example, or a
+moment of frustration) and tailor the reply to their role, experience and
+goal. That step is transfer learning: a frozen pretrained text encoder
+(`BAAI/bge-small-en-v1.5`) turns the message into an embedding, and a small
+head trained on 186 labelled learner questions picks the intent. The head only
+routes; Gemini still writes every answer. If the encoder or head is missing,
+or the head is not confident, the chat behaves exactly as before.
+
+| Test | Transfer | Baseline (TF-IDF) |
+|---|---|---|
+| 5-fold cross-validation | 93.5% | 71.0% |
+| 2 labelled examples per intent | 73.2% | 41.1% |
+| 8 labelled examples per intent | 87.1% | 57.9% |
+
+The few-shot rows are the point: with very few labels, the pretrained encoder
+does far better. On a held-out set of 56 messages the gap is much smaller, and
+that set was written by the same author as the training rows. Reproduce with
+`python -m app.intent`. Method, caveats and file map: `docs/transfer-learning.md`.
+
 ## Setup
 
 ```bash
@@ -152,6 +174,9 @@ key or a failed API call.
   built-in models (Linear, Ridge, Random Forest, Gradient Boosting).
 - The downstream check runs once, after cleaning finishes; it does not
   currently trigger a second cleaning pass if it fails.
+- The intent classifier was trained on 186 questions written by the team, not
+  real learners, and it labels some nonsense input (such as "la la la") as
+  off-topic. See `docs/transfer-learning.md` for the full list.
 
 ## Team
 
