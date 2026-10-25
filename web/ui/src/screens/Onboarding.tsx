@@ -60,7 +60,7 @@ export function Onboarding({ onDone }: { onDone: (profile: Profile) => void }) {
     try {
       await Promise.all([
         api.startSession(profile),
-        new Promise((r) => setTimeout(r, 1400)), // let the loading scene breathe
+        new Promise((r) => setTimeout(r, 800)), // a short beat so the loading scene is seen, not a wait
       ]);
       onDone(profile);
     } catch (e) {
@@ -85,10 +85,9 @@ export function Onboarding({ onDone }: { onDone: (profile: Profile) => void }) {
     );
   };
 
-  const loginSuccess = () => {
-    // A returning/demo login skips the quiz - reasonable defaults, no
-    // guessing needed since there's no real account data behind this.
-    void finish({ role: "admin", experience: "pretty confident", goal: "just exploring" }, "login");
+  // A login skips the quiz: the account's own profile (from the backend) is used.
+  const loginSuccess = (profile: Profile) => {
+    void finish(profile, "login");
   };
 
   if (stage === "loading") {
@@ -96,7 +95,7 @@ export function Onboarding({ onDone }: { onDone: (profile: Profile) => void }) {
   }
 
   if (stage === "login") {
-    return <Login onBack={() => setStage("hero")} onSuccess={loginSuccess} />;
+    return <Login onBack={() => setStage("hero")} onSuccess={loginSuccess} onGuest={() => setStage("quiz")} />;
   }
 
   if (stage === "quiz") {
@@ -183,13 +182,13 @@ export function Onboarding({ onDone }: { onDone: (profile: Profile) => void }) {
                 Bring your messiest spreadsheet and find out.
               </p>
               <div className="mt-8">
-                <Button glow type="button" onClick={() => setStage("quiz")}>
+                <Button glow type="button" onClick={() => setStage("login")}>
                   Let&rsquo;s go <span aria-hidden>&rarr;</span>
                 </Button>
               </div>
               <button
                 type="button"
-                onClick={() => setStage("quiz")}
+                onClick={() => setStage("login")}
                 className="mt-10 w-fit text-left"
                 aria-label="Get started"
               >

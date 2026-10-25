@@ -43,13 +43,24 @@ const MENTOR_LESSON_BY_SCREEN: Partial<Record<Screen["name"], MentorLessonContex
   results: { id: "results", title: "Final Project", step: "explain" },
 };
 
+// Screens where a lesson is under way. The mentor is not offered anywhere else:
+// there is nothing to ask about on the landing page, login, dataset or roadmap screens.
+const LESSON_SCREENS: ReadonlySet<Screen["name"]> = new Set([
+  "mission1",
+  "level",
+  "verify",
+  "visualize",
+  "mlFoundations",
+  "model",
+]);
+
 function AppInner() {
   const [screen, setScreen] = useState<Screen>({ name: "onboarding" });
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loaded, setLoaded] = useState<DatasetLoadResponse | null>(null);
   const [guesses, setGuesses] = useState<Record<number, GuessResult>>({});
   const [pointsTotal, setPointsTotal] = useState(0);
-  const { setTask } = useMentor();
+  const { setTask, setAvailable, setOpen } = useMentor();
 
   // Pushes "where the learner currently is" into the mentor whenever it
   // changes, so every screen gets a grounded mentor without being touched
@@ -86,6 +97,12 @@ function AppInner() {
     // screen shouldn't inherit the last one's leftover code-aware context.
     setTask({ lesson, dataset, code: undefined, output: undefined, error: undefined });
   }, [screen, loaded, setTask]);
+
+  useEffect(() => {
+    const inLesson = LESSON_SCREENS.has(screen.name);
+    setAvailable(inLesson);
+    if (!inLesson) setOpen(false);
+  }, [screen.name, setAvailable, setOpen]);
 
   const resetToDataset = () => {
     setLoaded(null);

@@ -58,6 +58,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export type Profile = { role: string | null; experience: string | null; goal?: string | null };
 
+/* Demo logins come from the backend (data/demo_users.json); nothing is hard-coded here. */
+export type DemoAccount = { username: string; password: string; name: string };
+export type LoginResult = { ok: true; name: string; profile: Profile };
+
 export type DatasetSummary = {
   name: string;
   rows: number;
@@ -247,6 +251,19 @@ export type MentorResponse = {
 };
 
 export const api = {
+  async demoAccounts(): Promise<DemoAccount[]> {
+    const { accounts } = await request<{ accounts: DemoAccount[] }>("/demo-accounts");
+    return accounts;
+  },
+
+  async login(username: string, password: string): Promise<LoginResult> {
+    return request<LoginResult>("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  },
+
   async startSession(profile: Profile): Promise<string> {
     const { session_id } = await request<{ session_id: string }>("/session", {
       method: "POST",

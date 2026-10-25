@@ -54,13 +54,23 @@ def narrate_llm(entry: ActionLogEntry | ModelLogEntry) -> str:
 def generate_lesson(action_log: list[ActionLogEntry], model_log: list[ModelLogEntry]) -> str:
     """The single function Person C's UI calls. Same shape regardless of
     whether the LLM is configured — only the sentence wording changes."""
+    # Each entry is narrated independently (one model call each), so run them side by
+    # side: the wait is one call, not one call per column. map() keeps the order.
+    from concurrent.futures import ThreadPoolExecutor
+
+    entries = list(action_log) + list(model_log)
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(entries)))) as pool:
+        sentences = list(pool.map(narrate_llm, entries))
+    action_lines = sentences[: len(action_log)]
+    model_lines = sentences[len(action_log):]
+
     lines = ["## What happened to your data"]
-    lines += [f"- {narrate_llm(entry)}" for entry in action_log]
+    lines += [f"- {s}" for s in action_lines]
 
     if model_log:
         lines.append("")
         lines.append("## Model selection")
-        lines += [f"- {narrate_llm(entry)}" for entry in model_log]
+        lines += [f"- {s}" for s in model_lines]
 
     return "\n".join(lines)
 

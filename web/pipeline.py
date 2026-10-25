@@ -129,8 +129,10 @@ class PipelineRun:
     action_log: list[dict]
     downstream: dict
     model: dict
-    lesson: str
     columns_changed: list[str] = field(default_factory=list)
+    # Written on first request (see lesson_text): it can take several model calls,
+    # and it is only shown on the final results page, so loading a dataset must not wait for it.
+    lesson: str | None = None
 
 
 def run_pipeline(df: pd.DataFrame) -> PipelineRun:
@@ -138,15 +140,20 @@ def run_pipeline(df: pd.DataFrame) -> PipelineRun:
     changed = _changed_columns(df, cleaned_df)
     downstream = _run_downstream(cleaned_df)
     model = _run_model(cleaned_df, df)
-    lesson = _lesson(action_log, model.get("raw_model_log", []))
     return PipelineRun(
         cleaned_df=cleaned_df,
         action_log=action_log,
         downstream=downstream,
         model=model,
-        lesson=lesson,
         columns_changed=changed,
     )
+
+
+def lesson_text(run: PipelineRun) -> str:
+    """The plain-language 'what happened to your data' summary, built once per run."""
+    if run.lesson is None:
+        run.lesson = _lesson(run.action_log, run.model.get("raw_model_log", []))
+    return run.lesson
 
 
 def _changed_columns(before: pd.DataFrame, after: pd.DataFrame) -> list[str]:

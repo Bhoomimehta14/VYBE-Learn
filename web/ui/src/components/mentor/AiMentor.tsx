@@ -91,7 +91,7 @@ function bubbleClass(kind: MentorMsgKind): string {
    (or which screen's own header layout) is currently showing underneath it. */
 export function AiMentor() {
   const {
-    open, setOpen, dismiss, task, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts,
+    open, setOpen, dismiss, available, task, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts,
     mistakes, recentActions, logAction, attemptHandlerRef, canAttempt,
   } = useMentor();
   const { addNote } = useNotes();
@@ -168,6 +168,8 @@ export function AiMentor() {
   const greeting = onLevel
     ? "Hi! Your job here is simple: choose an answer on the left. Not sure? Tap \u201cGive me a hint\u201d and I'll nudge you."
     : "Hi, I'm your AI Mentor. Ask me anything about the lesson or dataset you're on, or tap one of the prompts below.";
+  if (!available) return null;
+
   const shownMode = modeChosen ? mode : (serverMode ?? mode);
   const contextLine = [task.lesson?.title ?? "Not on a lesson yet", task.dataset?.name].filter(Boolean).join(" · ");
   const modeNote = modeChosen

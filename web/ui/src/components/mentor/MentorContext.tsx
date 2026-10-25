@@ -24,6 +24,9 @@ type MentorState = {
   /** True once the learner has closed the mentor themselves; screens that open it by default then leave it shut. */
   dismissed: boolean;
   dismiss: () => void;
+  /** The mentor only exists once a lesson has started: App turns this on for lesson screens only. */
+  available: boolean;
+  setAvailable: (v: boolean) => void;
   task: MentorTaskContext;
   setTask: (patch: Partial<MentorTaskContext>) => void;
   attemptHandlerRef: MutableRefObject<AttemptHandler | null>;
@@ -50,6 +53,7 @@ const MentorCtx = createContext<MentorState | null>(null);
 export function MentorProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [available, setAvailable] = useState(false);
   const dismiss = useCallback(() => {
     setOpen(false);
     setDismissed(true);
@@ -98,6 +102,8 @@ export function MentorProvider({ children }: { children: ReactNode }) {
       setOpen,
       dismissed,
       dismiss,
+      available,
+      setAvailable,
       task,
       setTask,
       attemptHandlerRef,
@@ -115,7 +121,7 @@ export function MentorProvider({ children }: { children: ReactNode }) {
       recentActions,
       logAction,
     }),
-    [open, dismissed, dismiss, task, setTask, canAttempt, registerAttemptHandler, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts, mistakes, addMistake, recentActions, logAction],
+    [open, dismissed, dismiss, available, setAvailable, task, setTask, canAttempt, registerAttemptHandler, mode, setMode, modeChosen, hintsUsed, bumpHints, attemptCount, bumpAttempts, mistakes, addMistake, recentActions, logAction],
   );
 
   return <MentorCtx.Provider value={value}>{children}</MentorCtx.Provider>;

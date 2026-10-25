@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import time
 
 from google import genai
@@ -35,6 +36,39 @@ MAX_RETRIES = 2
 
 _client: "genai.Client | None" = None
 _cache: dict[str, str] = {}
+
+# Errors that retrying cannot fix. After one of these every caller would otherwise
+# wait several seconds per call just to be told the same thing, so we remember it
+# for a while and let the deterministic fallback answer immediately.
+_NOT_RETRYABLE = {401: "key", 402: "billing", 403: "key", 404: "model", 429: "quota"}
+_MAX_BLOCK_SECONDS = 900  # re-test at least every 15 minutes in case it recovered
+_blocked_until = 0.0
+_blocked_reason: str | None = None
+
+
+def _error_code(e: Exception) -> int | None:
+    code = getattr(e, "code", None)
+    if isinstance(code, int):
+        return code
+    m = re.match(r"\s*(\d{3})(?!\d)", str(e))
+    return int(m.group(1)) if m else None
+
+
+def _block_for(e: Exception, reason: str) -> float:
+    """How long to stay off the API: Google's own retry hint when it gives one, capped."""
+    m = re.search(r"retryDelay'?\W+(\d+(?:\.\d+)?)s", str(e))
+    seconds = float(m.group(1)) if m else 600.0
+    return max(30.0, min(seconds, _MAX_BLOCK_SECONDS))
+
+
+def llm_status() -> dict:
+    """Whether live answers are available right now, and if not, why (quota, billing, key, model)."""
+    if not os.environ.get("GEMINI_API_KEY"):
+        return {"available": False, "reason": "no_key", "retry_in_seconds": 0}
+    remaining = _blocked_until - time.time()
+    if remaining > 0:
+        return {"available": False, "reason": _blocked_reason, "retry_in_seconds": int(remaining)}
+    return {"available": True, "reason": None, "retry_in_seconds": 0}
 
 
 def _get_client() -> "genai.Client":
@@ -58,12 +92,16 @@ def call_llm(system: str, user: str, max_tokens: int = 100) -> str | None:
     a None return here is what triggers narrate_llm.py's fallback to the
     deterministic template text, so the demo never breaks on an API hiccup.
     """
+    global _blocked_until, _blocked_reason
     if not os.environ.get("GEMINI_API_KEY"):
         return None
 
     key = _cache_key(system, user)
     if key in _cache:
         return _cache[key]
+
+    if time.time() < _blocked_until:
+        return None  # a known, non-recoverable failure was seen recently: answer instantly with the fallback
 
     client = _get_client()
     last_error = None
@@ -93,8 +131,13 @@ def call_llm(system: str, user: str, max_tokens: int = 100) -> str | None:
             return text
         except Exception as e:  # noqa: BLE001 -- any failure -> fallback, never crash the demo
             last_error = e
+            code = _error_code(e)
+            if code in _NOT_RETRYABLE:
+                _blocked_reason = _NOT_RETRYABLE[code]
+                _blocked_until = time.time() + _block_for(e, _blocked_reason)
+                break
             if attempt < MAX_RETRIES:
                 time.sleep(0.5 * (2 ** attempt))
 
-    print(f"[llm_client_gemini] all {MAX_RETRIES + 1} attempts failed: {last_error}")
+    print(f"[llm_client_gemini] giving up: {str(last_error)[:200]}")
     return None

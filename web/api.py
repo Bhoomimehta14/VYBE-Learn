@@ -7,6 +7,8 @@ deterministic pipeline run, and the learner's guesses and score.
 
 from __future__ import annotations
 
+import hmac
+import json
 import os
 import sys
 import uuid
@@ -176,7 +178,68 @@ class MentorBody(BaseModel):
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"ok": True, "llm_narration": bool(os.environ.get("GEMINI_API_KEY"))}
+    try:
+        from llm_client import llm_status  # app/educator/llm_client.py
+    except ImportError:
+        status = {"available": False, "reason": "not_installed", "retry_in_seconds": 0}
+    else:
+        status = llm_status()
+    return {
+        "ok": True,
+        "llm_narration": bool(os.environ.get("GEMINI_API_KEY")),
+        # Whether live answers work right now, and if not why: no_key, quota, billing, key, model.
+        "llm_available": status["available"],
+        "llm_issue": status["reason"],
+        "llm_retry_in_seconds": status["retry_in_seconds"],
+    }
+
+
+# Demo-only accounts, read from data/demo_users.json (see that file). Not real
+# authentication: the credentials are public on purpose and shown on the login page.
+DEMO_USERS_PATH = _ROOT / "data" / "demo_users.json"
+
+
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+def _demo_users() -> list[dict]:
+    try:
+        return json.loads(DEMO_USERS_PATH.read_text(encoding="utf-8")).get("users", [])
+    except (OSError, ValueError):
+        return []
+
+
+@app.get("/api/demo-accounts")
+def demo_accounts() -> dict:
+    """The public demo logins, so the login page can show them."""
+    return {
+        "accounts": [
+            {"username": u["username"], "password": u["password"], "name": u.get("name", u["username"])}
+            for u in _demo_users()
+        ]
+    }
+
+
+@app.post("/api/login")
+def login(body: LoginBody) -> dict:
+    name = body.username.strip().lower()
+    for user in _demo_users():
+        if user["username"].lower() == name and hmac.compare_digest(
+            user["password"].encode(), body.password.encode()
+        ):
+            profile = user.get("profile", {})
+            return {
+                "ok": True,
+                "name": user.get("name", user["username"]),
+                "profile": {
+                    "role": profile.get("role"),
+                    "experience": profile.get("experience"),
+                    "goal": profile.get("goal"),
+                },
+            }
+    raise HTTPException(status_code=401, detail="That username and password don't match.")
 
 
 @app.post("/api/session")
@@ -522,7 +585,7 @@ def results(request: Request) -> dict:
         "cleaned_columns": list(cleaned.columns),
         "downstream_passed": run.downstream["overall_passed"],
         "model": {k: v for k, v in run.model.items() if k != "raw_model_log"},
-        "lesson": run.lesson,
+        "lesson": pipeline.lesson_text(run),
     }
 
 

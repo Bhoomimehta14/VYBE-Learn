@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
    scenes like LevelTransition already manage their own timing and don't
    need this. */
 export function AutoAdvance({
-  ms = 1400,
+  ms = 800,
   onDone,
   children,
 }: {
