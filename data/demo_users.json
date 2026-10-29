@@ -2,6 +2,16 @@
   "_note": "Demo-only accounts for the prototype login screen. This is not real authentication: these credentials are intentionally public and are shown on the login page. Add an object to \"users\" to add another demo account.",
   "users": [
     {
+      "username": "demo",
+      "password": "demo123",
+      "name": "Demo",
+      "profile": {
+        "role": "business owner",
+        "experience": "new to this",
+        "goal": "get better at my job"
+      }
+    },
+    {
       "username": "admin",
       "password": "admin123",
       "name": "Admin",

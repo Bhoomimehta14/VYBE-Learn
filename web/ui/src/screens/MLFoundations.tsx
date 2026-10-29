@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Rail } from "@/components/Rail";
 import { Fade } from "@/components/ui/Fade";
+import { Practice } from "@/components/lesson/Practice";
 import { api, type Level, type ModelResult, type GuessResult } from "@/lib/api";
 
 /* The one stage that was pure concept with no existing screen: features vs
@@ -13,12 +14,15 @@ import { api, type Level, type ModelResult, type GuessResult } from "@/lib/api";
 export function MLFoundations({
   levels,
   guesses,
+  onPointsChange,
   onNext,
 }: {
   levels: Level[];
   guesses: Record<number, GuessResult>;
+  onPointsChange: (points: number) => void;
   onNext: () => void;
 }) {
+  const [practicing, setPracticing] = useState(false);
   const [data, setData] = useState<ModelResult | null>(null);
 
   useEffect(() => {
@@ -50,7 +54,9 @@ export function MLFoundations({
           </button>
         </div>
 
-        {!data ? (
+        {practicing ? (
+          <Practice stage="foundations" onPointsChange={onPointsChange} onDone={onNext} />
+        ) : !data ? (
           <p className="mt-3 text-ink-soft">Working out the vocabulary for your data...</p>
         ) : !data.available ? (
           <Fade k="ml-unavail">
@@ -107,8 +113,8 @@ export function MLFoundations({
             </div>
 
             <div className="mt-8">
-              <Button glow onClick={onNext}>
-                On to model selection <span aria-hidden>&rarr;</span>
+              <Button glow onClick={() => setPracticing(true)}>
+                Practice the vocabulary <span aria-hidden>&rarr;</span>
               </Button>
             </div>
           </Fade>

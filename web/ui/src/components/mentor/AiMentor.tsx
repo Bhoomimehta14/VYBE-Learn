@@ -18,6 +18,7 @@ const INTENT_LABELS: Record<string, string> = {
   next_step: "What's next",
   example_request: "Example",
   off_topic: "Off topic",
+  smalltalk: "Just chatting",
 };
 
 /* The server's `level.reason` is written for developers; this says the same

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Rail } from "@/components/Rail";
 import { Fade } from "@/components/ui/Fade";
-import { Quiz } from "@/components/lesson/Quiz";
+import { Practice } from "@/components/lesson/Practice";
 import { CodeReveal } from "@/components/lesson/CodeReveal";
 import { Mascot } from "@/components/Mascot";
 import { useMentor } from "@/components/mentor/MentorContext";
@@ -68,14 +68,12 @@ export function Model({
           </button>
         </div>
         {stage === "quiz" && data ? (
-          <Quiz
-            resetKey="model"
+          <Practice
+            stage="model"
             fetchQuestions={() => api.modelQuiz()}
             submitAnswers={(answers) => api.submitModelQuiz(answers)}
-            onDone={(points) => {
-              onPointsChange(points);
-              setStage("recap");
-            }}
+            onPointsChange={onPointsChange}
+            onDone={() => setStage("recap")}
           />
         ) : stage === "recap" && data ? (
           <ModelRecap data={data} onNext={() => setStage("code")} />
@@ -96,7 +94,7 @@ export function Model({
             <p className="mt-2 text-ink-soft">{data.reason}</p>
             <div className="mt-8">
               <Button glow onClick={() => setStage("quiz")}>
-                Quick recap <span aria-hidden>&rarr;</span>
+                Flashcards &amp; quiz <span aria-hidden>&rarr;</span>
               </Button>
             </div>
           </Fade>
@@ -163,7 +161,7 @@ export function Model({
             )}
             <div className="mt-8">
               <Button glow onClick={() => setStage("quiz")}>
-                Quick recap <span aria-hidden>&rarr;</span>
+                Flashcards &amp; quiz <span aria-hidden>&rarr;</span>
               </Button>
             </div>
           </Fade>

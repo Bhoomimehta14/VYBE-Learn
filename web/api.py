@@ -48,6 +48,21 @@ SAMPLE_CSV = _ROOT / "data" / "messy_sales_dataset.csv"
 
 app = FastAPI(title="VYBE Learn", docs_url="/api/docs")
 
+
+def _warm_up() -> None:
+    """Load the intent encoder once at startup, so the first mentor message isn't the one that pays for it."""
+    try:
+        chatbot.detect_intent("warm up")
+    except Exception:  # noqa: BLE001 - the mentor works without it
+        pass
+
+
+@app.on_event("startup")
+def _start_warm_up() -> None:
+    import threading
+
+    threading.Thread(target=_warm_up, daemon=True).start()
+
 # Needed once the frontend is deployed on a different origin than this
 # backend (e.g. Vercel + Render) - same-origin dev/prod-bundled setups never
 # hit this. CORS_ALLOW_ORIGINS is a comma-separated list; defaults to the
@@ -80,6 +95,7 @@ class Session:
     read_levels: set[int] = field(default_factory=set)  # which levels already earned the read bonus
     quiz_results: dict[int, dict] = field(default_factory=dict)  # level_id -> {results, points}
     model_quiz_result: dict | None = None  # modeling's own quiz - one per session, not per level
+    practice_results: dict[str, dict] = field(default_factory=dict)  # stage -> {results, points}
 
     @property
     def points(self) -> int:
@@ -88,6 +104,7 @@ class Session:
         raw += sum(r["points"] for r in self.quiz_results.values())
         if self.model_quiz_result:
             raw += self.model_quiz_result["points"]
+        raw += sum(r["points"] for r in self.practice_results.values())
         return max(0, raw)  # score reads as 0, not negative, even after a run of wrong guesses
 
 
@@ -302,7 +319,9 @@ async def load_dataset(
     session.read_levels = set()
     session.quiz_results = {}
     session.model_quiz_result = None
+    session.practice_results = {}
     session.run = run
+    run.prefetch_model()  # the slow step runs in the background while the learner reads the roadmap
 
     return {
         "dataset": pipeline.dataset_summary(df, name),
@@ -484,6 +503,47 @@ def submit_model_quiz(body: QuizBody, request: Request) -> dict:
     }
 
 
+# ---- flashcards + a short MCQ for the stages after cleaning (EDA, ML foundations, modeling)
+
+PRACTICE_QUIZ_STAGES = {"eda", "foundations"}
+PRACTICE_CARD_STAGES = PRACTICE_QUIZ_STAGES | {"model"}
+
+
+@app.get("/api/practice/{stage}/cards")
+def practice_cards(stage: str, request: Request) -> dict:
+    if stage not in PRACTICE_CARD_STAGES:
+        raise HTTPException(status_code=404, detail="Unknown stage.")
+    run = require_run(get_session(request))
+    return {"cards": pipeline.stage_flashcards(stage, run)}
+
+
+@app.get("/api/practice/{stage}/quiz")
+def practice_quiz(stage: str, request: Request) -> dict:
+    if stage not in PRACTICE_QUIZ_STAGES:
+        raise HTTPException(status_code=404, detail="Unknown stage.")
+    run = require_run(get_session(request))
+    questions = pipeline.build_stage_quiz(stage, run)
+    return {"questions": [{"id": q["id"], "prompt": q["prompt"], "options": q["options"]} for q in questions]}
+
+
+@app.post("/api/practice/{stage}/quiz")
+def submit_practice_quiz(stage: str, body: QuizBody, request: Request) -> dict:
+    if stage not in PRACTICE_QUIZ_STAGES:
+        raise HTTPException(status_code=404, detail="Unknown stage.")
+    session = get_session(request)
+    run = require_run(session)
+    questions = pipeline.build_stage_quiz(stage, run)
+    if stage not in session.practice_results:
+        session.practice_results[stage] = pipeline.score_quiz(questions, body.answers)
+    prior = session.practice_results[stage]
+    return {
+        "results": prior["results"],
+        "correct_answers": {q["id"]: q["answer"] for q in questions},
+        "points_awarded": prior["points"],
+        "points_total": session.points,
+    }
+
+
 @app.post("/api/chat")
 def chat(body: ChatBody, request: Request) -> dict:
     session = get_session(request)
@@ -568,7 +628,7 @@ def model(request: Request) -> dict:
 
 
 @app.get("/api/results")
-def results(request: Request) -> dict:
+def results(request: Request, lesson: bool = True) -> dict:
     session = get_session(request)
     run = require_run(session)
     cleaned = run.cleaned_df
@@ -576,7 +636,7 @@ def results(request: Request) -> dict:
     for col in head.select_dtypes(include=["datetime64[ns]"]).columns:
         head[col] = head[col].dt.strftime("%Y-%m-%d")
     preview = head.astype(object).where(pd.notna(head), None)
-    return {
+    out = {
         "points_total": session.points,
         "levels_total": len(session.levels),
         "levels_correct": sum(1 for g in session.guesses.values() if g["correct"]),
@@ -585,8 +645,17 @@ def results(request: Request) -> dict:
         "cleaned_columns": list(cleaned.columns),
         "downstream_passed": run.downstream["overall_passed"],
         "model": {k: v for k, v in run.model.items() if k != "raw_model_log"},
-        "lesson": pipeline.lesson_text(run),
     }
+    if lesson:
+        out["lesson"] = pipeline.lesson_text(run)
+    return out
+
+
+@app.get("/api/results/lesson")
+def results_lesson(request: Request) -> dict:
+    """The written summary, on its own, so the results page can show everything else first."""
+    run = require_run(get_session(request))
+    return {"lesson": pipeline.lesson_text(run)}
 
 
 # ------------------------------------------------------------------ helpers

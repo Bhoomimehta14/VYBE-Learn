@@ -48,7 +48,7 @@ export function Login({
     }
   };
 
-  const demo = accounts?.[0];
+  const demo = accounts?.[0] ?? (accounts !== null ? { username: "demo", password: "demo123", name: "Demo" } : undefined);
 
   return (
     <div className="min-h-screen bg-bg">

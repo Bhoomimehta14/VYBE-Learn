@@ -18,6 +18,12 @@ from web.api import app
 client = TestClient(app)
 
 
+def test_the_first_demo_account_is_demo_demo123():
+    accounts = client.get("/api/demo-accounts").json()["accounts"]
+    assert accounts[0] == {"username": "demo", "password": "demo123", "name": "Demo"}
+    assert client.post("/api/login", json={"username": "demo", "password": "demo123"}).status_code == 200
+
+
 def test_the_demo_accounts_file_is_valid_and_has_a_simple_admin_login():
     data = json.loads((ROOT / "data" / "demo_users.json").read_text(encoding="utf-8"))
     users = {u["username"]: u for u in data["users"]}

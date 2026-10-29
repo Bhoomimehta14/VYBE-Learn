@@ -11,6 +11,7 @@ isn't there.
 from __future__ import annotations
 
 import os
+import time
 
 import requests
 
@@ -98,7 +99,14 @@ INTENT_GUIDANCE = {
     "why_wrong": "They want to understand a mistake. Explain what went wrong in their reasoning, kindly.",
     "next_step": "They want to know what to do next. Suggest exactly one concrete next step.",
     "example_request": "They asked for an example. Give one small concrete example with simple numbers.",
-    "off_topic": "This is unrelated to the lesson. Answer in one friendly sentence, then steer back to the lesson.",
+    "off_topic": (
+        "This is unrelated to the lesson. Never refuse stiffly. Acknowledge what they actually said or asked for "
+        "in one friendly sentence, in their own kind of language, then bring them back to the lesson in one line."
+    ),
+    "smalltalk": (
+        "They are just being friendly (a greeting, thanks or small talk). Reply warmly and casually in one or two "
+        "short sentences, in their own kind of language, then offer one easy next step in the lesson."
+    ),
 }
 
 INTENT_FALLBACK = {
@@ -114,6 +122,50 @@ INTENT_FALLBACK = {
     "next_step": "Finish the current level, then move to the next column on your path - the agent will show what it did and why.",
     "off_topic": "That one's outside what I can help with here, but I'm happy to keep going on your data lesson whenever you are.",
 }
+
+
+_SMALLTALK = (
+    ("greeting", r"(hi+|hello+|hey+|heya|hiya|yo|sup|hola|namaste|howdy|good (morning|afternoon|evening))( (there|again|mentor|buddy|friend|everyone))?"),
+    ("how_are_you", r"(how are you|how are you doing|how r u|how's it going|hows it going|what's up|whats up|wassup|how do you do)( today)?"),
+    ("thanks", r"(thanks|thank you|thx|ty|cheers|thanks a lot|thank you so much|much appreciated)( mentor)?"),
+    ("bye", r"(bye+|goodbye|see you|see ya|good night|goodnight|cya|talk later)( later| soon)?"),
+    ("ack", r"(ok|okay|k|cool|nice|great|awesome|got it|alright|sounds good|makes sense)"),
+)
+
+
+def detect_smalltalk(message: str) -> str | None:
+    """greeting | how_are_you | thanks | bye | ack, or None. A plain rule, not the classifier:
+    these messages are short and predictable, and they must never be labelled off-topic."""
+    import re
+
+    text = re.sub(r"[^\w\s']", "", (message or "").lower()).strip()
+    if not text or len(text.split()) > 5:
+        return None
+    for kind, pattern in _SMALLTALK:
+        if re.fullmatch(pattern, text):
+            return kind
+    return None
+
+
+_WANT_PATTERNS = (
+    r"^(?:please\s+)?(?:can|could|would) you\s+(?:please\s+)?(?:get|bring|order|buy|make|find|give|fetch)\s+me\s+(.+)$",
+    r"^(?:please\s+)?(?:get|bring|order|buy|make|find|give|fetch)\s+me\s+(.+)$",
+    r"^i\s+(?:want|need|wanna|would like|'d like|am craving|crave)\s+(.+)$",
+)
+
+
+def _wanted_thing(message: str) -> str | None:
+    """'get me a pizza' -> 'a pizza', so the reply can show it heard them. None if there is no clear ask."""
+    import re
+
+    text = re.sub(r"\s+", " ", (message or "").strip().rstrip("?.! ")).lower()
+    for pattern in _WANT_PATTERNS:
+        m = re.match(pattern, text)
+        if m:
+            thing = m.group(1).strip()
+            if 0 < len(thing.split()) <= 5 and not thing.startswith("to "):
+                return thing
+    return None
 
 
 def detect_intent(message: str) -> dict | None:
@@ -189,6 +241,10 @@ def _adk_extract_tool_result(events: list[dict], tool_name: str) -> dict | None:
     return None
 
 
+_adk_down_until = 0.0
+_ADK_RETRY_AFTER = 60  # seconds to skip a tutor that just failed, so every message isn't slowed by it
+
+
 def ask_adk(message: str, learner_id: str) -> dict | None:
     """Routes a message through the ADK-hosted multi-agent tutor. Returns
     None on any failure (server not running, timeout, empty reply) so the
@@ -196,7 +252,11 @@ def ask_adk(message: str, learner_id: str) -> dict | None:
     returns {"reply", "profile", "progress"} - profile/progress are the real
     structured facts the tutor's profiler/gamification agents computed, not
     just their wording, so the caller can drive the UI with them directly."""
+    global _adk_down_until
+    if time.time() < _adk_down_until:
+        return None
     if not _ensure_adk_session(learner_id):
+        _adk_down_until = time.time() + _ADK_RETRY_AFTER
         return None
     try:
         res = requests.post(
@@ -222,6 +282,7 @@ def ask_adk(message: str, learner_id: str) -> dict | None:
             "progress": tool_result.get("progress"),
         }
     except requests.RequestException:
+        _adk_down_until = time.time() + _ADK_RETRY_AFTER
         return None
 
 
@@ -457,7 +518,8 @@ def mentor_ask(payload: dict, session_id: str | None = None) -> dict:
     otherwise a genuinely useful canned fallback is returned instead, never
     a fabricated one dressed up as live."""
     message = (payload.get("user_message") or "").strip()
-    intent = detect_intent(message) if message else None
+    smalltalk = detect_smalltalk(message) if message else None
+    intent = {"intent": "smalltalk", "confidence": 1.0} if smalltalk else (detect_intent(message) if message else None)
 
     who = payload.get("learner") or {}
     level = persona.learner_level(
@@ -513,8 +575,11 @@ def _mentor_fallback(message: str, action: str | None, payload: dict, intent: di
             return faq
         # Only the off-topic redirect is lesson-agnostic; the other canned intent
         # replies talk about "this column", which the platform-wide mentor can't assume.
+        role = (payload.get("learner") or {}).get("role")
+        if intent and intent["intent"] == "smalltalk":
+            return persona.smalltalk_reply(detect_smalltalk(message) or "ack", role)
         if intent and intent["intent"] == "off_topic":
-            return INTENT_FALLBACK["off_topic"]
+            return persona.offtopic_reply(_wanted_thing(message), role)
     if payload.get("last_error") and action in (None, "why_wrong", "explain_output"):
         return (
             "I can't reach a live mentor right now, but here's a general nudge: read the last line of "
@@ -529,6 +594,6 @@ def _mentor_fallback(message: str, action: str | None, payload: dict, intent: di
     if action == "next_step":
         return "I can't reach a live mentor right now - try the next unfinished step in your current lesson's checklist."
     return (
-        "I don't have a live, personalized answer for that right now. Try rephrasing your question, or "
-        "use one of the suggested actions once the mentor is reconnected."
+        "Good question, but my live brain is resting right now, so I can't answer it properly yet. "
+        "Tap Give me a hint for a nudge, or try again in a little while."
     )

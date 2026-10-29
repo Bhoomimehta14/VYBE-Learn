@@ -238,7 +238,8 @@ export type MentorIntentName =
   | "why_wrong"
   | "next_step"
   | "example_request"
-  | "off_topic";
+  | "off_topic"
+  | "smalltalk";
 
 export type MentorResponse = {
   reply: string;
@@ -354,8 +355,30 @@ export const api = {
     return request("/model");
   },
 
-  results(): Promise<Results> {
-    return request("/results");
+  /* The page's numbers and table arrive fast; the written summary (which can take a few
+     Gemini calls) is fetched separately so the page never waits on it. */
+  results(): Promise<Omit<Results, "lesson">> {
+    return request("/results?lesson=false");
+  },
+
+  resultsLesson(): Promise<{ lesson: string }> {
+    return request("/results/lesson");
+  },
+
+  practiceCards(stage: string): Promise<{ cards: { front: string; back: string }[] }> {
+    return request(`/practice/${stage}/cards`);
+  },
+
+  practiceQuiz(stage: string): Promise<{ questions: QuizQuestion[] }> {
+    return request(`/practice/${stage}/quiz`);
+  },
+
+  submitPracticeQuiz(stage: string, answers: Record<string, string>): Promise<QuizResult> {
+    return request(`/practice/${stage}/quiz`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answers }),
+    });
   },
 
   mentor(body: MentorRequest): Promise<MentorResponse> {

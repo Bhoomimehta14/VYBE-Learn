@@ -36,6 +36,7 @@ sys.path.insert(0, "/home/claude/project")
 # "why we're trying this" reason, filled in dynamically based on what we
 # observed, not a static string. ----
 
+EVAL_MAX_ROWS = 3000
 R2_MIN_ACCEPTABLE = 0.15   # deliberately low -- see note in run() about why
 RESIDUAL_PATTERN_CORR_MAX = 0.25  # |correlation between residuals and prediction|
                                     # above this suggests the model is
@@ -78,7 +79,7 @@ def _observe_data_shape(df: pd.DataFrame, target_col: str, feature_cols: list, n
     }
 
 
-def _evaluate_model(model, X, y, cv_folds: int = 5) -> dict:
+def _evaluate_model(model, X, y, cv_folds: int = 3) -> dict:
     """
     EVALUATE step: cross-validated R^2 (not just a single train/test split
     score, so the result isn't an artifact of one lucky/unlucky split) plus
@@ -134,7 +135,7 @@ def select_and_fit_model(df: pd.DataFrame, target_col: str, feature_cols: list,
         start_reason = "strong linear correlation detected -- starting with the simplest model that fits that pattern"
         candidates = [
             ("LinearRegression", LinearRegression()),
-            ("RandomForestRegressor", RandomForestRegressor(n_estimators=200, random_state=42)),
+            ("RandomForestRegressor", RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)),
             ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42)),
         ]
     else:
@@ -145,7 +146,7 @@ def select_and_fit_model(df: pd.DataFrame, target_col: str, feature_cols: list,
         candidates = [
             ("LinearRegression", LinearRegression()),
             ("Ridge", Ridge(alpha=1.0)),
-            ("RandomForestRegressor", RandomForestRegressor(n_estimators=200, random_state=42)),
+            ("RandomForestRegressor", RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)),
             ("GradientBoostingRegressor", GradientBoostingRegressor(random_state=42)),
         ]
 
@@ -153,12 +154,20 @@ def select_and_fit_model(df: pd.DataFrame, target_col: str, feature_cols: list,
     X = df[feature_cols]
     y = df[target_col]
 
+    # Judging a model does not need every row: past a few thousand the score barely moves,
+    # but the time grows fast. Evaluate on a fixed sample, then fit the final model on all rows.
+    if len(X) > EVAL_MAX_ROWS:
+        idx = X.sample(EVAL_MAX_ROWS, random_state=42).index
+        X_eval, y_eval = X.loc[idx], y.loc[idx]
+    else:
+        X_eval, y_eval = X, y
+
     model_log = []
     chosen = None
 
     for name, estimator in candidates:
         pipeline = Pipeline([("prep", preprocessor), ("model", estimator)])
-        eval_result = _evaluate_model(pipeline, X, y)
+        eval_result = _evaluate_model(pipeline, X_eval, y_eval)
         passed, reason = _passes_model_check(eval_result)
 
         entry = {

@@ -63,7 +63,9 @@ def test_chat_offline_redirects_politely(offline, question):
 def test_mentor_offline_redirects_politely(offline, question):
     body = client.post("/api/mentor", headers=_headers(), json={"user_message": question}).json()
     assert body["grounded"] is False
-    assert body["reply"] == REDIRECT
+    reply = body["reply"].lower()
+    assert "lesson" in reply or "step" in reply, "it should steer back to the lesson"
+    assert "don't have" not in reply
 
 
 def test_offline_redirect_is_not_a_dead_end():

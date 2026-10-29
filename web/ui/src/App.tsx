@@ -9,8 +9,6 @@ import { Visualize } from "@/screens/Visualize";
 import { MLFoundations } from "@/screens/MLFoundations";
 import { Model } from "@/screens/Model";
 import { Results } from "@/screens/Results";
-import { AutoAdvance } from "@/components/ui/AutoAdvance";
-import { LoadingScene } from "@/components/ui/LoadingScene";
 import { LevelTransition } from "@/components/ui/LevelTransition";
 import { AiMentor, DOCK_PUSH } from "@/components/mentor/AiMentor";
 import { MentorProvider, useMentor } from "@/components/mentor/MentorContext";
@@ -22,7 +20,6 @@ import { clearSession, type DatasetLoadResponse, type GuessResult, type MentorLe
 type Screen =
   | { name: "onboarding" }
   | { name: "dataset" }
-  | { name: "roadmapLoading" }
   | { name: "roadmap" }
   | { name: "mission1Loading" }
   | { name: "mission1" }
@@ -144,16 +141,9 @@ function AppInner() {
             setLoaded(data);
             setGuesses({});
             setPointsTotal(0);
-            setScreen({ name: "roadmapLoading" });
+            setScreen({ name: "roadmap" });
           }}
         />
-      );
-
-    case "roadmapLoading":
-      return (
-        <AutoAdvance onDone={() => setScreen({ name: "roadmap" })}>
-          <LoadingScene label="Tweaking a roadmap just for you." />
-        </AutoAdvance>
       );
 
     case "roadmap":
@@ -171,6 +161,7 @@ function AppInner() {
       return (
         <LevelTransition
           phases={["Mission 1 started"]}
+          phaseMs={500}
           points={pointsTotal}
           onDone={() => setScreen({ name: "mission1" })}
         />
@@ -235,6 +226,7 @@ function AppInner() {
         <Visualize
           levels={loaded.levels}
           guesses={guesses}
+          onPointsChange={setPointsTotal}
           onNext={() => setScreen({ name: "mlFoundations" })}
         />
       );
@@ -245,6 +237,7 @@ function AppInner() {
         <MLFoundations
           levels={loaded.levels}
           guesses={guesses}
+          onPointsChange={setPointsTotal}
           onNext={() => setScreen({ name: "model" })}
         />
       );

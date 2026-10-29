@@ -6,6 +6,7 @@ reformats.
 from __future__ import annotations
 
 import io
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -128,8 +129,13 @@ class PipelineRun:
     cleaned_df: pd.DataFrame
     action_log: list[dict]
     downstream: dict
-    model: dict
     columns_changed: list[str] = field(default_factory=list)
+    original_df: pd.DataFrame | None = None
+    # Model selection is the slow step (cross-validated forests), and it is only shown
+    # several screens later. It is computed once, in the background right after upload
+    # (prefetch_model), and `model` waits for it only if someone asks sooner.
+    _model: dict | None = field(default=None, repr=False)
+    _model_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     # Written on first request (see lesson_text): it can take several model calls,
     # and it is only shown on the final results page, so loading a dataset must not wait for it.
     lesson: str | None = None
@@ -139,14 +145,28 @@ def run_pipeline(df: pd.DataFrame) -> PipelineRun:
     cleaned_df, action_log = run_agent(df, verbose=False)
     changed = _changed_columns(df, cleaned_df)
     downstream = _run_downstream(cleaned_df)
-    model = _run_model(cleaned_df, df)
     return PipelineRun(
         cleaned_df=cleaned_df,
         action_log=action_log,
         downstream=downstream,
-        model=model,
         columns_changed=changed,
+        original_df=df,
     )
+
+
+def _model_of(self: PipelineRun) -> dict:
+    with self._model_lock:
+        if self._model is None:
+            self._model = _run_model(self.cleaned_df, self.original_df if self.original_df is not None else self.cleaned_df)
+        return self._model
+
+
+def _prefetch_model(self: PipelineRun) -> None:
+    threading.Thread(target=lambda: _model_of(self), daemon=True).start()
+
+
+PipelineRun.model = property(_model_of)  # type: ignore[attr-defined]
+PipelineRun.prefetch_model = _prefetch_model  # type: ignore[attr-defined]
 
 
 def lesson_text(run: PipelineRun) -> str:
@@ -325,6 +345,114 @@ def build_model_quiz(model: dict) -> list[dict]:
             "answer": yes,
         },
     ]
+
+
+# ------------------------------------------------- flashcards + quiz for later stages
+
+
+def stage_flashcards(stage: str, run: PipelineRun) -> list[dict]:
+    """Flip cards for EDA, ML foundations and modeling. Short, plain wording; the
+    modeling cards quote the learner's own score when there is one."""
+    if stage == "eda":
+        return [
+            {"front": "Histogram", "back": "Bars that show how the values in one column are spread out: lots of rows in a tall bar, few in a short one."},
+            {"front": "Bar chart of groups", "back": "A count of rows in each group, like how many deals per region. It shows which group is biggest."},
+            {"front": "Trend line", "back": "An average plotted over time. It shows whether a number is going up, down or staying flat."},
+            {"front": "Correlation", "back": "How strongly two columns move together, from 0 (no link) to 1 (perfect link). A link is not proof that one causes the other."},
+            {"front": "Outlier", "back": "A value far away from the rest. It might be a real big deal or a typing mistake, so look before you remove it."},
+        ]
+    if stage == "foundations":
+        return [
+            {"front": "Target", "back": "The column you want to predict."},
+            {"front": "Features", "back": "The other columns the model is allowed to look at to make the prediction."},
+            {"front": "Training set and test set", "back": "Most rows teach the model. The rest are held back to grade it on rows it has never seen."},
+            {"front": "Regression vs classification", "back": "Regression predicts a number. Classification predicts a category, like yes or no."},
+            {"front": "Overfitting", "back": "A model that memorised its training rows and does badly on new ones. The test set is how you catch it."},
+        ]
+    model = run.model if stage == "model" else {}
+    chosen = (model or {}).get("chosen")
+    r2_back = "How much of the pattern the model explains, from 0 to 1. Higher is better."
+    if chosen:
+        r2_back += f" Yours scored about {chosen['cv_r2']}."
+    return [
+        {"front": "R² score", "back": r2_back},
+        {"front": "Cross-validation", "back": "Test the model several times, each time holding back a different slice of rows, so one lucky split cannot fool you."},
+        {"front": "Residuals", "back": "The gaps between what the model predicted and what really happened. If they show a pattern, the model is missing something."},
+        {"front": "Why escalate?", "back": "The agent starts with the simplest model and only moves to a more flexible one when a check fails. Simple models are easier to explain."},
+        {"front": "Random forest", "back": "Many small decision trees that vote. It can catch curved or tangled patterns that a straight-line model misses."},
+    ]
+
+
+def _trend_direction(points: list[dict]) -> str:
+    first, last = points[0]["value"], points[-1]["value"]
+    base = abs(first) or 1.0
+    change = (last - first) / base
+    if change > 0.05:
+        return "Going up"
+    if change < -0.05:
+        return "Going down"
+    return "Roughly flat"
+
+
+def build_stage_quiz(stage: str, run: PipelineRun) -> list[dict]:
+    """A short MCQ for EDA or ML foundations, grounded in this learner's own data
+    where it can be. Same shape as the other quizzes so score_quiz() grades it."""
+    questions: list[dict] = []
+    if stage == "eda":
+        viz = visualization_data(run.cleaned_df)
+        cats = viz["category_charts"]
+        if cats and len(cats[0]["bars"]) >= 2:
+            col, bars = cats[0]["column"], cats[0]["bars"]
+            answer = bars[0]["label"]
+            questions.append({
+                "id": "eda_top_group",
+                "prompt": f"In the chart for {col}, which group has the most rows?",
+                "options": sorted({b["label"] for b in bars[:4]} | {answer}),
+                "answer": answer,
+            })
+        trend = viz["trend_chart"]
+        if trend:
+            questions.append({
+                "id": "eda_trend",
+                "prompt": f"Looking at the trend chart, what is {trend['column']} doing over time?",
+                "options": ["Going down", "Going up", "Roughly flat"],
+                "answer": _trend_direction(trend["points"]),
+            })
+        hist = "How the values in one column are spread out"
+        questions.append({
+            "id": "eda_histogram",
+            "prompt": "What does a histogram show?",
+            "options": sorted([hist, "Which rows have missing values", "How well the model scored"]),
+            "answer": hist,
+        })
+        return questions
+
+    model = run.model
+    cols = [str(c) for c in run.cleaned_df.columns]
+    if model.get("available") and model.get("target") in cols:
+        target = model["target"]
+        others = [c for c in cols if c != target][:3]
+        questions.append({
+            "id": "ml_target",
+            "prompt": "Which column is the target, the thing the model tries to predict?",
+            "options": sorted(others + [target]),
+            "answer": target,
+        })
+        reg = "Regression, because it predicts a number"
+        questions.append({
+            "id": "ml_kind",
+            "prompt": f"Predicting {target} is which kind of problem?",
+            "options": sorted([reg, "Classification, because it predicts a category"]),
+            "answer": reg,
+        })
+    held = "To grade the model on rows it has never seen"
+    questions.append({
+        "id": "ml_split",
+        "prompt": "Why do we hold back some rows as a test set?",
+        "options": sorted([held, "To make the model train faster", "To remove rows with missing values"]),
+        "answer": held,
+    })
+    return questions
 
 
 def score_quiz(questions: list[dict], answers: dict[str, str]) -> dict:

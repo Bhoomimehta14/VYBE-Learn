@@ -4,17 +4,21 @@ import { Card } from "@/components/ui/Card";
 import { Rail } from "@/components/Rail";
 import { Fade } from "@/components/ui/Fade";
 import { Bars, Trend } from "@/components/charts/Charts";
+import { Practice } from "@/components/lesson/Practice";
 import { api, type Level, type ModelResult, type VisualizeData, type GuessResult } from "@/lib/api";
 
 export function Visualize({
   levels,
   guesses,
+  onPointsChange,
   onNext,
 }: {
   levels: Level[];
   guesses: Record<number, GuessResult>;
+  onPointsChange: (points: number) => void;
   onNext: () => void;
 }) {
+  const [practicing, setPracticing] = useState(false);
   const [data, setData] = useState<VisualizeData | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Reuses the same observation the modeling step already computed - "find
@@ -49,7 +53,9 @@ export function Visualize({
             Skip EDA <span aria-hidden>&rarr;</span>
           </button>
         </div>
-        {!data ? (
+        {practicing ? (
+          <Practice stage="eda" onPointsChange={onPointsChange} onDone={onNext} />
+        ) : !data ? (
           <p className="mt-3 text-ink-soft">{error ?? "Charting your cleaned data..."}</p>
         ) : (
           <Fade k="visualize">
@@ -115,8 +121,8 @@ export function Visualize({
             )}
 
             <div className="mt-8">
-              <Button glow onClick={onNext}>
-                On to modeling <span aria-hidden>&rarr;</span>
+              <Button glow onClick={() => setPracticing(true)}>
+                Practice what you saw <span aria-hidden>&rarr;</span>
               </Button>
             </div>
           </Fade>

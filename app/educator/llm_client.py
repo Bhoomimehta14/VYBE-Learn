@@ -33,6 +33,7 @@ MODEL = "gemini-3.6-flash"  # gemini-2.5-flash was deprecated for new users;
                              # by a live 404 error message from the API itself
 TIMEOUT_SECONDS = 8.0
 MAX_RETRIES = 2
+_THINKING_OFF = True
 
 _client: "genai.Client | None" = None
 _cache: dict[str, str] = {}
@@ -92,7 +93,7 @@ def call_llm(system: str, user: str, max_tokens: int = 100) -> str | None:
     a None return here is what triggers narrate_llm.py's fallback to the
     deterministic template text, so the demo never breaks on an API hiccup.
     """
-    global _blocked_until, _blocked_reason
+    global _blocked_until, _blocked_reason, _THINKING_OFF
     if not os.environ.get("GEMINI_API_KEY"):
         return None
 
@@ -111,6 +112,10 @@ def call_llm(system: str, user: str, max_tokens: int = 100) -> str | None:
                 model=MODEL,
                 contents=user,
                 config={
+                    # Short explanations don't need the model to "think" first: switching it off
+                    # roughly halves the wait (about 4.8s -> 2.3s measured). Dropped automatically
+                    # if a model ever rejects the setting.
+                    **({"thinking_config": {"thinking_budget": 0}} if _THINKING_OFF else {}),
                     "system_instruction": system,
                     # Fragments/truncation were observed with a low ceiling
                     # (e.g. 80 tokens) -- newer Gemini models appear to
@@ -132,6 +137,9 @@ def call_llm(system: str, user: str, max_tokens: int = 100) -> str | None:
         except Exception as e:  # noqa: BLE001 -- any failure -> fallback, never crash the demo
             last_error = e
             code = _error_code(e)
+            if _THINKING_OFF and "thinking" in str(e).lower():
+                _THINKING_OFF = False  # this model doesn't accept it: retry without
+                continue
             if code in _NOT_RETRYABLE:
                 _blocked_reason = _NOT_RETRYABLE[code]
                 _blocked_until = time.time() + _block_for(e, _blocked_reason)

@@ -11,10 +11,12 @@ export function Results({
   onRestart: () => void;
   onNewDataset: () => void;
 }) {
-  const [data, setData] = useState<ResultsT | null>(null);
+  const [data, setData] = useState<Omit<ResultsT, "lesson"> | null>(null);
+  const [lesson, setLesson] = useState<string | null>(null);
 
   useEffect(() => {
     api.results().then(setData).catch(() => setData(null));
+    api.resultsLesson().then((r) => setLesson(r.lesson)).catch(() => setLesson(""));
   }, []);
 
   if (!data) {
@@ -93,7 +95,11 @@ export function Results({
       </Reveal>
 
       <Reveal delay={0.16}>
-        <Lesson markdown={data.lesson} />
+        {lesson === null ? (
+          <p className="mt-10 text-sm text-ink-soft">Writing your summary...</p>
+        ) : (
+          lesson && <Lesson markdown={lesson} />
+        )}
       </Reveal>
 
       <div className="mt-10 flex gap-3">

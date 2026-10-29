@@ -186,6 +186,15 @@ that set was written by the same author as the training rows. Reproduce with
   `data/demo_users.json`.
 - **Faster.** Dataset loading dropped from about 18 seconds to under one second
   locally, because the lesson text is now written on demand.
+- **Flashcards and quizzes after EDA, ML foundations and modeling**, so those
+  stages are no longer just data on a screen.
+- **Faster upload.** Model selection (the slowest step) now runs in the background
+  after upload and is cheaper (3-fold cross-validation, 100 trees, sampling past
+  3,000 rows): an upload of 2,000 rows went from 36 seconds to about 1.
+- **Faster mentor.** Gemini's extra "thinking" is switched off for short answers
+  (about half the wait), the intent model loads at startup, and a tutor that is
+  down is skipped for a minute instead of checked on every message.
+- **Demo login** is `demo` / `demo123`.
 - **Gemini instead of Claude**, with a pause-and-fallback when the free quota
   or key fails.
 - **One deployed backend** on Render, and the ADK tutor copied into `adk-tutor/`.
@@ -215,7 +224,7 @@ npm --prefix web/ui run dev            # frontend on http://localhost:5173
 ```
 
 "Let's get started" opens a login page. The demo accounts live in
-`data/demo_users.json` (for example `admin` / `admin123`) and are checked by
+`data/demo_users.json` (`demo` / `demo123`, or `admin` / `admin123`) and are checked by
 the backend; each account carries its own role, experience and goal. Anyone
 without an account can answer three quick questions instead. The AI Mentor
 is docked on the right half of every lesson screen and is not shown on the

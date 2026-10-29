@@ -106,6 +106,26 @@ _ROLE_GUIDANCE = {
     ),
 }
 
+# How the mentor should sound to each kind of learner, not just which examples to use.
+_ROLE_TONE = {
+    "sales": (
+        "Tone: talk like a sharp, friendly colleague on the sales floor. Upbeat and direct, "
+        "and use sales words (pipeline, quota, closing, deals) where they fit."
+    ),
+    "operations": (
+        "Tone: practical and calm, like a teammate on the ops floor. Short and concrete, "
+        "using words like orders, delays and bottlenecks where they fit."
+    ),
+    "hr": (
+        "Tone: warm and respectful, like a thoughtful HR colleague. Use people-and-team words, "
+        "and stay careful around anything personal."
+    ),
+    "student": (
+        "Tone: talk like a friendly study buddy. Casual, short sentences, a little humour, plain words, "
+        "and student words (exam, assignment, syllabus, study break) where they fit."
+    ),
+}
+
 _DEPTH_GUIDANCE = {
     "new": "They are new to data work. Avoid jargon; if you must use a term, define it in the same sentence. Go slowly.",
     "basics": "They know the basics. You can use common terms (mean, column, outlier) without defining them, but explain anything beyond that.",
@@ -142,6 +162,11 @@ def persona_block(role: str | None, experience: str | None, goal: str | None) ->
             "and say so plainly if you are not sure of an example."
         )
 
+    if key:
+        lines.append(_ROLE_TONE[key])
+    elif (role or "").strip():
+        lines.append(f"Tone: casual and friendly, the way someone in {role.strip()} would talk to a colleague.")
+
     band = experience_band(experience)
     if band:
         lines.append(_DEPTH_GUIDANCE[band])
@@ -155,3 +180,72 @@ def persona_block(role: str | None, experience: str | None, goal: str | None) ->
     if not lines:
         return ""
     return "How to tailor your reply to this learner:\n" + "\n".join(f"- {line}" for line in lines)
+
+
+# ------------------------------------------------- offline replies, in the learner's voice
+#
+# Used when no live model answered. Small talk and off-topic messages still get a real,
+# friendly reply that sounds like the learner's own world, never a flat "not my topic".
+
+_GREET_TAIL = {
+    "student": "Ready to get through this lesson? Ask me anything, or tap Explain this to start.",
+    "sales": "Ready to turn this data into numbers you can trust? Ask me anything, or tap Explain this to start.",
+    "operations": "Let's get this data in order. Ask me about this step, or tap Explain this to start.",
+    "hr": "Ready to make sense of this data? Ask me anything about this step, or tap Explain this to start.",
+    None: "Ask me anything about this lesson, or tap Explain this to start.",
+}
+
+_THANKS = {
+    "student": "Anytime! Shout if something doesn't click.",
+    "sales": "Anytime! Say the word if a step doesn't add up.",
+    "operations": "Anytime. Flag me if any step looks off.",
+    "hr": "Of course! Ask whenever something isn't clear.",
+    None: "Anytime! Ask whenever something isn't clear.",
+}
+
+_HOW_ARE_YOU = {
+    "student": "Doing great, thanks for asking! How's the lesson treating you? Anything confusing so far?",
+    "sales": "Doing great, thanks! How's the lesson going? Any step that isn't adding up?",
+    "operations": "All good here, thanks! How's the lesson going? Anything stuck?",
+    "hr": "Doing well, thank you for asking! How's the lesson going? Anything unclear?",
+    None: "Doing great, thanks for asking! How's the lesson going? Anything confusing so far?",
+}
+
+_BYE = "See you! Come back whenever you want to pick it up again."
+_ACK = "Nice. Want me to explain this step, or are you good to go?"
+
+_OFFTOPIC_WANT = {
+    "student": "Ha, {want}? Fair, studying makes everyone hungry. That's outside my syllabus though, I only do data. Let's finish this lesson first, then it's break time.",
+    "sales": "I hear you, {want} sounds good. Not something I can close for you though, I only do data. Let's wrap this lesson first, then treat yourself like you just hit quota.",
+    "operations": "Noted, {want} is on the list. It's outside what I can handle though, I only do data. Let's finish this step first, then take a break.",
+    "hr": "Sounds like a good idea, {want}. It's outside what I can help with though, I only do data. Let's finish this lesson, then take a well-earned break.",
+    None: "I get it, {want} sounds good. That's outside what I can help with though, I only do data. Let's finish this lesson first, then take a break.",
+}
+
+_OFFTOPIC_PLAIN = {
+    "student": "That one's not on my syllabus, I only do data. Let's finish this lesson first, then you can chat about it after.",
+    "sales": "Fun one, but I can't close that deal, I only do data. Let's finish this lesson first, then we can get back to the rest of your day.",
+    "operations": "Good question, but it's outside my lane, I only do data. Let's finish this step first, then you can look into it.",
+    "hr": "Interesting, but that's outside what I can help with, I only do data. Let's finish this lesson first.",
+    None: "That one's outside what I can help with, I only do data. Let's finish this lesson first and then you can get back to it.",
+}
+
+
+def smalltalk_reply(kind: str, role: str | None) -> str:
+    key = role_key(role)
+    if kind == "greeting":
+        return f"Hey! Good to see you. {_GREET_TAIL.get(key, _GREET_TAIL[None])}"
+    if kind == "thanks":
+        return _THANKS.get(key, _THANKS[None])
+    if kind == "how_are_you":
+        return _HOW_ARE_YOU.get(key, _HOW_ARE_YOU[None])
+    if kind == "bye":
+        return _BYE
+    return _ACK
+
+
+def offtopic_reply(want: str | None, role: str | None) -> str:
+    key = role_key(role)
+    if want:
+        return _OFFTOPIC_WANT.get(key, _OFFTOPIC_WANT[None]).format(want=want)
+    return _OFFTOPIC_PLAIN.get(key, _OFFTOPIC_PLAIN[None])
