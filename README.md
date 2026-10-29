@@ -1,8 +1,11 @@
-# AutoTriage-Clean: An Agentic Data Cleaning & Modeling Educator
+# VYBE Learn: An Agentic Data Cleaning & Modeling Educator
 
-An AI agent that cleans a user's own messy dataset, verifies its work actually
-holds up, picks an appropriate ML model for it, and explains every decision
-in plain language — built for people with zero data science background.
+An AI tutor for people with no data science background. An agent cleans the
+learner's own messy dataset, verifies its work actually holds up, picks an
+appropriate ML model, and explains every decision in plain language. An AI
+Mentor sits beside each lesson, and a transfer-learning classifier works out
+what kind of help the learner needs and how much support to give.
+(The engine started life as AutoTriage-Clean, so some file names still say so.)
 
 ## The problem
 
@@ -38,6 +41,20 @@ median imputation for missing values distorts the distribution by 21%.
 The agent's evaluation step catches this, discards the fix, and switches
 to KNN imputation, which distorts it by only 7.6% — a genuine
 try → fail → adapt cycle, not a scripted demo.
+
+## Our solution
+
+Two parts work together:
+
+1. **The agent** (deterministic) cleans the data and picks the model, using the
+   loop above. Every decision is checked by a statistical test, not by an LLM.
+2. **The tutor** (Gemini, plus a small transfer-learning model) teaches what
+   the agent did. It reads the learner's profile (role, experience, goal) and
+   their message, decides what kind of help they are asking for, and sets how
+   much to reveal: guided, assisted or independent.
+
+The tutor never makes the cleaning or modelling decisions. It only explains
+them, and it still works offline with built-in tips.
 
 ## Architecture
 
@@ -89,6 +106,24 @@ try → fail → adapt cycle, not a scripted demo.
               the agent made and why.
 ```
 
+The AI Mentor, docked beside every lesson, is a second path built on top:
+
+```
+  learner's message + profile (role, experience, goal)
+        │
+        ▼
+  intent classifier (transfer learning)    frozen bge-small encoder + small head
+        │   concept? hint? why wrong? stuck? next step? example? off-topic?
+        ▼
+  learner_level                            profile + mastery + hints/attempts
+        │                                  -> guided / assisted / independent
+        ▼
+  Gemini (grounded in the lesson, dataset and code)
+        │      falls back to a Google ADK tutor first when it is running,
+        ▼      and to built-in tips when Gemini is unavailable
+  reply, shown with the detected intent and support mode
+```
+
 ### Component breakdown
 
 | Component | What it does | Deterministic or LLM-driven |
@@ -99,7 +134,10 @@ try → fail → adapt cycle, not a scripted demo.
 | `compute_stats` / evaluation | Checks whether a fix actually worked | Deterministic (statistical thresholds) |
 | `downstream_check` | Verifies the cleaned data is genuinely usable | Deterministic |
 | `model_selector` | Picks and validates a regression model | Deterministic decision logic, standard sklearn models |
-| `educator/narrate` | Explains every decision in plain language | LLM (Claude), with a deterministic fallback if the API is unavailable |
+| `educator/narrate` | Explains every decision in plain language | LLM (Gemini), with a deterministic fallback if the API is unavailable |
+| `app/intent` | Classifies what kind of help a learner is asking for | Transfer learning: frozen pretrained encoder + small trained head |
+| `web/persona.py` | Turns role, experience, mastery and struggle into a support level | Deterministic |
+| `web/chat.py` (AI Mentor) | Answers learner questions, grounded in the lesson | Gemini, with ADK tutor and offline fallbacks |
 
 **Why rule-based planning, not LLM-driven planning:** auditable, fast,
 free per-decision, and defensible to judges — "if X then Y" is provable;
@@ -108,6 +146,9 @@ decisions that were already made deterministically, never making the
 decisions itself. This also means the system degrades gracefully — if the
 LLM API is unavailable, the agent still works, just with plainer
 explanations.
+
+The classifier follows the same rule: it only routes. It picks which guidance
+line goes into the prompt and never writes an answer or touches the data.
 
 ## Transfer learning: the learner-intent classifier
 
@@ -131,14 +172,56 @@ does far better. On a held-out set of 56 messages the gap is much smaller, and
 that set was written by the same author as the training rows. Reproduce with
 `python -m app.intent`. Method, caveats and file map: `docs/transfer-learning.md`.
 
+## What changed after the first draft
+
+- **Transfer learning added.** The mentor now detects the learner's intent and
+  adjusts its reply (see above), instead of treating every message the same.
+- **Personalisation.** A learner level and a role/experience/goal profile set
+  how much help is shown. Off-topic questions get a friendly redirect on every
+  tier, including offline.
+- **One mentor.** The two separate chats became a single docked AI Mentor.
+- **Simpler lessons.** Each level is two clear steps with clickable answers
+  and an obvious next step.
+- **Login first.** "Let's get started" opens a login page backed by
+  `data/demo_users.json`.
+- **Faster.** Dataset loading dropped from about 18 seconds to under one second
+  locally, because the lesson text is now written on demand.
+- **Gemini instead of Claude**, with a pause-and-fallback when the free quota
+  or key fails.
+- **One deployed backend** on Render, and the ADK tutor copied into `adk-tutor/`.
+
 ## Setup
 
 ```bash
 pip install -r requirements.txt
-cp .env.example .env  # add your ANTHROPIC_API_KEY for LLM narration (optional)
+cp .env.example .env  # add GEMINI_API_KEY for the AI explanations (optional)
 ```
 
+`GEMINI_API_KEY` (or `GOOGLE_API_KEY`) turns on the Gemini-written lesson
+text and mentor replies. Without it, everything still works with built-in
+template text. The free Gemini tier allows about 20 requests a day. When it
+runs out, or the key is rejected, the backend pauses its Gemini calls, shows
+"not personalized live yet", and uses the built-in tips until the quota resets.
+`/api/health` reports `llm_available`, `llm_issue` and `llm_retry_in_seconds`.
+
 ## Running it
+
+**Web app (React + FastAPI):**
+
+```bash
+python run_web.py --port 8000          # backend
+npm --prefix web/ui install            # first time only
+npm --prefix web/ui run dev            # frontend on http://localhost:5173
+```
+
+"Let's get started" opens a login page. The demo accounts live in
+`data/demo_users.json` (for example `admin` / `admin123`) and are checked by
+the backend; each account carries its own role, experience and goal. Anyone
+without an account can answer three quick questions instead. The AI Mentor
+is docked on the right half of every lesson screen and is not shown on the
+landing, login, dataset or roadmap screens.
+
+**Command line:**
 
 ```bash
 python3 run_full_demo.py
@@ -149,9 +232,24 @@ Runs the full pipeline against the included demo dataset
 with backtracking, downstream verification, model selection, and the
 plain-language explanation a real user would see.
 
-Without `ANTHROPIC_API_KEY` set, narration falls back to deterministic
-template text automatically — the pipeline never breaks due to a missing
+Without an API key set, narration falls back to deterministic
+template text automatically. The pipeline never breaks due to a missing
 key or a failed API call.
+
+**Deployment:** the frontend runs on Vercel and the backend on Render
+(`vybe-learn`). Set `VITE_API_BASE` on Vercel to the backend's address, and
+`GEMINI_API_KEY` plus `CORS_ALLOW_ORIGINS` (the Vercel address) on Render.
+The optional Google ADK tutor lives in `adk-tutor/`; the backend falls back to
+direct Gemini and then to offline tips when it is not running.
+
+**Tests:** blank the keys so the offline tests are not affected by a real one.
+
+```bash
+GEMINI_API_KEY= GOOGLE_API_KEY= python -m pytest tests
+```
+
+**Speed:** loading a dataset no longer waits on Gemini. The lesson text is
+written only when the results page asks for it, in parallel, and cached.
 
 ## Example: the adaptation moment
 
